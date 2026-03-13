@@ -375,21 +375,17 @@ class SurgicalQADataLoader:
         # FIX: Create separate dataset instances with proper is_train flags
         # This ensures val/test use deterministic clip selection (clip_idx=0)
         # while train uses random clip sampling
-
-        # Make copy of kwargs and set is_train
-        train_kwargs = dataset_kwargs.copy()
-        train_kwargs['is_train'] = True
-
-        val_kwargs = dataset_kwargs.copy()
-        val_kwargs['is_train'] = False
-
-        test_kwargs = dataset_kwargs.copy()
-        test_kwargs['is_train'] = False
+        # NOTE: is_train is not a __init__ parameter, set it after instantiation
 
         # Create separate dataset instances
-        self.train_dataset_raw = SurgicalVideoDataset(data_root, **train_kwargs)
-        self.val_dataset_raw = SurgicalVideoDataset(data_root, **val_kwargs)
-        self.test_dataset_raw = SurgicalVideoDataset(data_root, **test_kwargs)
+        self.train_dataset_raw = SurgicalVideoDataset(data_root, **dataset_kwargs)
+        self.train_dataset_raw.is_train = True
+
+        self.val_dataset_raw = SurgicalVideoDataset(data_root, **dataset_kwargs)
+        self.val_dataset_raw.is_train = False
+
+        self.test_dataset_raw = SurgicalVideoDataset(data_root, **dataset_kwargs)
+        self.test_dataset_raw.is_train = False
 
         # Wrap with Subset for specific indices
         self.train_dataset = torch.utils.data.Subset(self.train_dataset_raw, train_indices)
