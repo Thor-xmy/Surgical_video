@@ -34,7 +34,8 @@ class MaskGuidedAttention(nn.Module):
     """
     def __init__(self,
                  feature_dim=832,
-                 use_mask_loss=True, enable_temporal_smoothing=True):
+                 use_mask_loss=True,
+                 enable_temporal_smoothing=True):
         """
         Args:
             feature_dim: Input feature channel dimension
@@ -98,7 +99,7 @@ class MaskGuidedAttention(nn.Module):
 
         # Pad if odd number of frames
         if even_frames.size(1) > odd_frames.size(1):
-            odd_frames = F.pad(odd_frames, (0, 0, 0, 0, 0, 1), 'replicate')
+            odd_frames = F.pad(odd_frames, (0, 0, 0, 0, 0, 1), mode='replicate')
 
         # Sum adjacent frames
         smoothed = even_frames + odd_frames
@@ -108,46 +109,6 @@ class MaskGuidedAttention(nn.Module):
 
         return smoothed
 
-    def _generate_attention_from_masks(self, masks, target_size):
-        """
-        Generate attention map from mask features.
-
-        Args:
-            masks: (B, T, H, W) - binary mask values [0,1]
-            target_size: (H', W') - target spatial size
-        Returns:
-            attention: (B, T, H', W') - attention map [0,1]
-        """
-        B, T, H, W = masks.shape
-
-        # Stack mean and max along channel dimension
-        # Mean attention: average across spatial dimensions for each frame
-        A_mean = masks.mean(dim=(2, 3), keepdim=True)  # (B, T, 1, 1)
-        # Max attention: max across spatial dimensions for each frame
-        A_max = masks.amax(dim=(2, 3), keepdim=True)[0]  # (B, T, 1, 1)
-
-        # Stack mean and max for aggregation
-        A_stacked = torch.cat([A_mean, A_max], dim=1)  # (B, 2, T, 1, 1)
-
-        # Reshape for 2D conv: (B*T, 2, 1, 1)
-        BT = B * T
-        A_reshaped = A_stacked.permute(0, 2, 1, 3, 4).reshape(BT, 2, 1, 1)
-        A_agg = self.aggregation(A_reshaped)  # (B*T, 1, 1, 1)
-
-        # Reshape back to (B, 1, T, 1, 1) then to (B, T, H', W')
-        A_agg = A_agg.reshape(B, T, 1, 1).squeeze(2)  # (B, T, 1, 1)
-
-        # Resize to target size using bilinear interpolation
-        # Need 4D tensor for bilinear: (B*T, C, H, W)
-        A_agg = A_agg.permute(0, 2, 1, 3)  # (B, 1, T, 1)
-        A_agg = A_agg.reshape(BT, 1, 1, 1)  # (B*T, 1, 1, 1)
-        A_agg = F.interpolate(A_agg, size=target_size, mode='bilinear', align_corners=False)  # (B*T, 1, H', W')
-        A_agg = A_agg.reshape(B, T, 1, target_size[0], target_size[1])  # (B, T, 1, H', W')
-        A_agg = A_agg.squeeze(2)  # (B, T, H', W')
-
-        return A_agg
-
-    def forward(self, dynamic_features, masks, return_attention_map=False):
     def forward(self, dynamic_features, masks, return_attention_map=False):
         """
         Apply mask-guided attention to dynamic features.
@@ -173,7 +134,7 @@ class MaskGuidedAttention(nn.Module):
         # Downsample high-resolution masks to I3D feature spatial resolution (T, H, W)
         masks_3d = masks.unsqueeze(1)  # (B, 1, T_mask, H_mask, W_mask)
         masks_3d = F.interpolate(masks_3d, size=(T, H, W), mode='trilinear', align_corners=False)
-        
+
         # Get mask_attention through convolution projection
         mask_attention = self.mask_proj(masks_3d)  # (B, 1, T, H, W)
         mask_attention = mask_attention.squeeze(1)  # (B, T, H, W)
@@ -208,7 +169,6 @@ class MaskGuidedAttention(nn.Module):
             return pooled_features, None, mask_loss
 
 
-
 class AttentionVisualization(nn.Module):
     """
     Utility module for attention map visualization.
@@ -230,11 +190,11 @@ class AttentionVisualization(nn.Module):
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
         # Handle different input formats
-        if original.dim() == 4:  # (B, C, T, H, W)
-            original = original[0]
+        if original_video.dim() == 4:  # (B, C, T, H, W)
+            original = original_video[0]
             original = original.permute(1, 2, 3, 0)  # (T, H, W, C)
-        elif original.dim() == 5:  # (B, C, T, H, W)
-            original = original[0]
+        elif original_video.dim() == 5:  # (B, C, T, H, W)
+            original = original_video[0]
             original = original.permute(1, 2, 3, 0)  # (T, H, W, C)
 
         if attention_map.dim() == 3:  # (B, T, H, W)

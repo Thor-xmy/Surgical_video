@@ -81,6 +81,7 @@ class SurgicalVideoDataset(Dataset):
         self.transform = transform
         self.use_mask = use_mask
         self.mask_format = mask_format
+        self.is_train = True
 
         # Load annotations
         self.annotations = self._load_annotations()
@@ -263,7 +264,7 @@ class SurgicalVideoDataset(Dataset):
             return self.__getitem__((idx + 1) % len(self))
 
         # Select random clip (or deterministic during validation)
-        clip_idx = random.randint(0, len(clips) - 1) if self.training else 0
+        clip_idx = random.randint(0, len(clips) - 1) if self.is_train else 0
         clip = clips[clip_idx]
 
         # Preprocess frames
