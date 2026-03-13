@@ -182,7 +182,8 @@ MLP Regressor:
     ├─ FC2: 1024 → 512 (LayerNorm + ReLU + Dropout)
     ├─ FC3: 512 → 256 (LayerNorm + ReLU + Dropout)
     ├─ FC4: 256 → 128 (LayerNorm + ReLU + Dropout)
-    └─ Output: 128 → 1
+    ├─ FC5: 128 → 64 (LayerNorm + ReLU + Dropout)
+    └─ Output: 64 → 1
     ↓
 Output: Quality Score y (B, 1)
 ```

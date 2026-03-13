@@ -48,16 +48,6 @@ class MaskGuidedAttention(nn.Module):
         self.use_mask_loss = use_mask_loss
         self.enable_temporal_smoothing = enable_temporal_smoothing
 
-        # Aggregation function f_agg: combines mean and max attention maps
-        self.aggregation = nn.Sequential(
-            nn.Conv2d(2, 16, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(16, 8, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(8, 1, kernel_size=3, padding=1),
-            nn.Sigmoid()
-        )
-
         # Additional attention generation from dynamic features
         # This allows the network to learn attention beyond mask guidance
         self.attention_conv = nn.Sequential(
@@ -68,10 +58,11 @@ class MaskGuidedAttention(nn.Module):
         )
 
         # Mask projection for matching feature dimensions
+        # FIX: Must use Conv3d to handle 5D mask tensor (B, 1, T, H, W)
         self.mask_proj = nn.Sequential(
-            nn.Conv2d(1, 64, kernel_size=3, padding=1),
+            nn.Conv3d(1, 64, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(64, 1, kernel_size=3, padding=1),
+            nn.Conv3d(64, 1, kernel_size=3, padding=1),
             nn.Sigmoid()
         )
 
