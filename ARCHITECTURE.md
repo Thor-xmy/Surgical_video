@@ -140,7 +140,7 @@ Input:
     - Masks B: (B, T, H_mask, W_mask)
     ↓
 Temporal Smoothing (as in paper1231):
-    M_gt[w,h] = f_2D(∑(M^(2t-1,w,h} + M^(2t,w,h)))
+    M_gt[w,h] = f_2D(∑(M^(2t-1,w,h) + M^(2t,w,h)))
     ↓
 Generate Attention from Masks:
     - Mean pooling: A_mean = (1/C) * ∑F_ms

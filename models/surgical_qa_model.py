@@ -89,10 +89,10 @@ class FusionRegressor(nn.Module):
             score: (B, 1)
         """
         # Concatenate features
-        fused = torch.cat([static_features, dynamic_features], dim=1)
+        fused = torch.cat([static_features, dynamic_features], dim=1)  # (B, static_dim + dynamic_dim)
 
         # Regress to score
-        score = self.regressor(fused)
+        score = self.regressor(fused)  # (B, 1)
 
         return score
 
@@ -189,18 +189,20 @@ class SurgicalQAModel(nn.Module):
         # ResNet-34 on keyframes -> captures tissue state and surgical field clarity
         static_features = self.static_extractor(video)  # (B, static_dim)
 
-        # 2. Extract dynamic features C (FIX: compute once, keep gradients)
+        # 2. Extract dynamic features C
         # I3D on video -> captures spatiotemporal dynamics
-        # FIX: Remove redundant computation and no_grad() wrapper
-        raw_dynamic = self.dynamic_extractor.feature_extractor(video)  # (B, 832, T', H', W')
+        # Get both feature map (for attention) and pooled features (for fusion)
+        dynamic_feat_map, raw_dynamic = self.dynamic_extractor(video, return_features_map=True)
+        # dynamic_feat_map: (B, dynamic_dim, T', H', W') - for attention module
+        # raw_dynamic: (B, dynamic_dim) - for final fusion
 
         # 3-4. Apply mask-guided attention: B作用于C得到D
         # Generate attention from masks and apply to dynamic features
         masked_dynamic_features, attention_map, mask_loss = self.masked_attention(
-            raw_dynamic,  # Spatial-temporal features
+            dynamic_feat_map,  # Spatial-temporal feature map
             masks,  # Instrument masks
             return_attention_map=return_attention
-        )  # (B, dynamic_dim), (B, T, H', W'), optional loss
+        )  # (B, dynamic_dim), (B, T', H', W'), optional loss
 
         # 5. Concatenate A and D -> fused features
         # Static (tissue/field) + Dynamic (instrument) = comprehensive features
@@ -214,6 +216,7 @@ class SurgicalQAModel(nn.Module):
         if return_features:
             features_dict = {
                 'static': static_features,
+                'dynamic_feat_map': dynamic_feat_map,
                 'dynamic_raw': raw_dynamic,
                 'dynamic_masked': masked_dynamic_features,
                 'fused': fused_features,

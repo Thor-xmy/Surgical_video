@@ -31,9 +31,12 @@ class MaskGuidedAttention(nn.Module):
     - f_agg: Learnable aggregation function
     - I: Identity matrix
     - F_clip: Short-term spatiotemporal features from I3D
+
+    Note: This implementation uses a hybrid approach combining mask guidance
+    with learnable attention from features, which provides additional flexibility.
     """
     def __init__(self,
-                 feature_dim=832,
+                 feature_dim=256,
                  use_mask_loss=True,
                  enable_temporal_smoothing=True):
         """
@@ -58,7 +61,7 @@ class MaskGuidedAttention(nn.Module):
         )
 
         # Mask projection for matching feature dimensions
-        # FIX: Must use Conv3d to handle 5D mask tensor (B, 1, T, H, W)
+        # Must use Conv3d to handle 5D mask tensor (B, 1, T, H, W)
         self.mask_proj = nn.Sequential(
             nn.Conv3d(1, 64, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
@@ -69,37 +72,56 @@ class MaskGuidedAttention(nn.Module):
         # Fusion weight (learnable balance between mask and learned attention)
         self.alpha = nn.Parameter(torch.tensor(0.5))
 
-    def _temporal_smoothing(self, masks):
+    def _temporal_smoothing(self, masks, target_T=None):
         """
         Apply temporal smoothing to masks as in paper1231.
 
-        Formula: M_gt[w,h] = f_2D(sum(M^{2t-1,w,h} + M^{2t,w,h}))
-        This reduces jitter and local instability in single-frame masks.
+        Paper formula: M_gt[w,h] = f_2D(sum(M^{2t-1,w,h} + M^{2t,w,h}))
+
+        Steps:
+        1. Sum adjacent frames: M^{2t-1} + M^{2t}
+        2. Apply 2D average pooling (f_2D) to resize mask spatially
+        3. This reduces jitter and local instability in single-frame masks
 
         Args:
             masks: (B, T, H, W)
+            target_T: Target temporal dimension (if None, keep T/2)
         Returns:
-            smoothed_masks: (B, T, H, W)
+            smoothed_masks: (B, T_out, H', W') - Temporal length may change
         """
-        if masks.size(1) < 2:
+        B, T, H, W = masks.shape
+
+        if T < 2:
             return masks
 
-        # Sum adjacent frames
-        even_frames = masks[:, 0::2, :, :]  # M^0, M^2, ...
-        odd_frames = masks[:, 1::2, :, :]  # M^1, M^3, ...
+        # Sum adjacent frames: M^{2t-1} + M^{2t}
+        # This reduces temporal dimension by half
+        num_pairs = T // 2
+        even_frames = masks[:, 0:num_pairs*2:2, :, :]  # M^0, M^2, ...
+        odd_frames = masks[:, 1:num_pairs*2:2, :, :]   # M^1, M^3, ...
 
-        # Pad if odd number of frames
-        # FIX: F.pad with mode='replicate' doesn't work for 4D tensors (B, T, H, W)
-        # Use torch.cat to duplicate the last frame instead
-        if even_frames.size(1) > odd_frames.size(1):
-            last_frame = odd_frames[:, -1:, :, :]  # (B, 1, H, W)
-            odd_frames = torch.cat([odd_frames, last_frame], dim=1)  # (B, T_odd+1, H, W)
+        # Sum adjacent pairs
+        summed = even_frames + odd_frames  # (B, num_pairs, H, W)
 
-        # Sum adjacent frames
-        smoothed = even_frames + odd_frames
+        # Apply 2D average pooling (f_2D) as per paper
+        # This is spatial downsampling step to match I3D feature resolution
+        # Using a 2x2 average pool with stride 2 (common for feature map alignment)
+        smoothed = F.avg_pool2d(summed, kernel_size=2, stride=2, padding=0)  # (B, num_pairs, H/2, W/2)
 
-        # Average to normalize
+        # Normalize to [0, 1] range (since we summed two masks)
         smoothed = smoothed / 2.0
+
+        # If target temporal dimension is specified, interpolate to match
+        if target_T is not None and smoothed.size(1) != target_T:
+            # Permute to (B, H, W, T) for interpolation, then permute back
+            smoothed = smoothed.permute(0, 2, 3, 1)  # (B, H, W, T/2)
+            smoothed = F.interpolate(
+                smoothed.unsqueeze(1),  # Add channel dim: (B, 1, H, W, T/2)
+                size=(smoothed.size(1), smoothed.size(2), target_T),
+                mode='trilinear',
+                align_corners=False
+            ).squeeze(1)  # (B, H, W, T)
+            smoothed = smoothed.permute(0, 3, 1, 2)  # (B, T, H, W)
 
         return smoothed
 
@@ -121,8 +143,9 @@ class MaskGuidedAttention(nn.Module):
         device = dynamic_features.device
 
         # 1. Temporal smoothing of masks (alleviate SAM single-frame segmentation jitter)
+        # Pass target temporal dimension T to ensure alignment with I3D features
         if self.enable_temporal_smoothing:
-            masks = self._temporal_smoothing(masks)
+            masks = self._temporal_smoothing(masks, target_T=T)
 
         # 2. Dimension alignment and projection
         # Downsample high-resolution masks to I3D feature spatial resolution (T, H, W)
@@ -226,8 +249,8 @@ if __name__ == '__main__':
     model = MaskGuidedAttention(feature_dim=832)
 
     # Create dummy inputs
-    dynamic_features = torch.randn(2, 832, 8, 28, 28)  # (B, C, T, H, W)
-    masks = torch.randint(0, 2, (2, 8, 224, 224)).float()  # (B, T, H, W)
+    dynamic_features = torch.randn(2, 832, 4, 7, 7)  # (B, C, T, H, W)
+    masks = torch.randint(0, 2, (2, 16, 224, 224)).float()  # (B, T, H, W)
 
     # Forward pass
     features, attention, loss = model(dynamic_features, masks, return_attention_map=True)

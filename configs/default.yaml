@@ -39,8 +39,8 @@ normalize: true    # Normalize pixel values to [-1, 1]
 # ============================================================================
 # MODEL SETTINGS
 # ============================================================================
-static_dim: 512    # ResNet-34 feature dimension
-dynamic_dim: 832    # I3D feature dimension
+static_dim: 256    # ResNet-34 feature dimension
+dynamic_dim: 256    # I3D feature dimension (simplified I3D output)
 freeze_backbone: true    # Freeze backbone weights
 use_pretrained: true    # Use ImageNet pretrained weights
 use_mask_loss: true    # Use mask supervision loss

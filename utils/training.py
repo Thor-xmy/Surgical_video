@@ -65,7 +65,7 @@ class AverageMeter:
     def __str__(self):
         """String representation."""
         if self.count > 0:
-            return f"{self.name} {self.avg{self.fmt}} (n={self.count})"
+            return f"{self.name} {self.avg:{self.fmt}} (n={self.count})"
         return f"{self.name} N/A"
 
 
@@ -95,7 +95,11 @@ def train_epoch(model, dataloader, optimizer, criterion, device,
         metrics_dict: Dict of training metrics
     """
     model.train()
-    dataloader.dataset.training = True
+    # Handle Subset wrapper: access underlying dataset's is_train attribute
+    if hasattr(dataloader.dataset, 'dataset'):
+        dataloader.dataset.dataset.is_train = True
+    else:
+        dataloader.dataset.is_train = True
 
     # Reset meters
     loss_meter = AverageMeter(name='Loss')

@@ -53,7 +53,7 @@ class MultiScaleDownsample(nn.Module):
         f4 = self.scale4(x)
         f8 = self.scale8(x)
 
-        # FIX: Pool all features to 1x1 before concatenation
+        # Pool all features to 1x1 before concatenation
         # Different strides produce different spatial sizes (e.g., 4x4, 2x2, 1x1)
         # which cannot be concatenated directly
         f2 = F.adaptive_avg_pool2d(f2, (1, 1))
@@ -72,6 +72,8 @@ class StaticFeatureExtractor(nn.Module):
     1. ResNet-34 backbone for high-level global features
     2. Multi-scale downsampling module for local details
     3. Frame sampling strategy (keyframe or temporal average)
+
+    Output: 512-dimensional static features (matching paper1231)
     """
     def __init__(self,
                  resnet_path=None,
@@ -84,7 +86,7 @@ class StaticFeatureExtractor(nn.Module):
             resnet_path: Path to custom ResNet checkpoint
             use_pretrained: Use ImageNet pretrained weights
             freeze_early_layers: Freeze early ResNet layers
-            output_dim: Output feature dimension
+            output_dim: Output feature dimension (default 512 as per paper1231)
             sampling_strategy: How to sample frames ('middle', 'average', 'first', 'last')
         """
         super().__init__()
@@ -113,12 +115,17 @@ class StaticFeatureExtractor(nn.Module):
         self.global_pool = nn.AdaptiveAvgPool2d(1)
 
         # Final projection to output dimension
-        self.proj = nn.Sequential(
-            nn.Linear(384, 512),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.3),
-            nn.Linear(512, output_dim)
-        )
+        # 384 (multiscale) -> output_dim (default 512)
+        if output_dim == 384:
+            # No projection needed if output matches multiscale output
+            self.proj = nn.Identity()
+        else:
+            self.proj = nn.Sequential(
+                nn.Linear(384, 512),
+                nn.ReLU(inplace=True),
+                nn.Dropout(0.3),
+                nn.Linear(512, output_dim)
+            )
 
         # Load custom checkpoint if provided
         if resnet_path is not None:
@@ -163,8 +170,7 @@ class StaticFeatureExtractor(nn.Module):
         for t in range(selected_frames.size(2)):
             selected_frame = selected_frames[:, :, t, :, :]  # (B, C, H, W)
             feat = self.backbone(selected_frame)  # (B, 512, H', W')
-            feat = self.multiscale_downsample(feat)  # (B, 384, H'', W'')
-            feat = self.global_pool(feat)  # (B, 384, 1, 1)
+            feat = self.multiscale_downsample(feat)  # (B, 384, 1, 1)
             feat = feat.flatten(1)  # (B, 384)
             features_list.append(feat)
 
@@ -182,7 +188,7 @@ class StaticFeatureExtractor(nn.Module):
 
 if __name__ == '__main__':
     # Test the module
-    model = StaticFeatureExtractor(output_dim=256)
+    model = StaticFeatureExtractor(output_dim=512)
     video = torch.randn(2, 3, 16, 224, 224)  # B=2, C=3, T=16, H=W=224
 
     features = model(video)

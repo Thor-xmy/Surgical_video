@@ -9,6 +9,7 @@ Reference from paper1231:
 - Video is divided into N overlapping snippets (stride=10, each has 16 frames)
 - I3D extracts short-term spatiotemporal features
 - Mixed convolution layers expand temporal receptive field
+- Spatial max pooling applied (Eq.5): F_clip(X_i) = maxpool(Conv_mix(X_i))
 """
 
 import torch
@@ -82,39 +83,62 @@ class MixedConv3D(nn.Module):
 
 class InceptionModule3D(nn.Module):
     """
-    3D Inception module for I3D backbone.
+    3D Inception module for I3D backbone (standard implementation).
 
-    Branches:
-    - b0: 1x1x1 conv
-    - b1: 1x1x1 -> 3x3x3 conv
-    - b2: 1x1x1 -> 3x3x3 conv
-    - b3: maxpool3d -> 1x1x1 conv
+    Standard I3D branch outputs:
+    - b0: 1x1x1 conv (out0_channels)
+    - b1: 1x1x1 -> 3x3x3 conv (out1_channels)
+    - b2: 1x1x1 -> 3x3x3 conv (out2_channels)
+    - b3: maxpool3d -> 1x1x1 conv (out3_channels)
+
+    Total output channels = out0 + out1 + out2 + out3
     """
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, branch_channels=None):
         """
         Args:
             in_channels: Number of input channels
-            out_channels: List of [b0, b1a, b1b, b2a, b2b, b3b] output channels
+            out_channels: Total output channels
+            branch_channels: Optional list of [out0, out1, out2, out3]
         """
         super().__init__()
 
+        if branch_channels is None:
+            # Default branch splits for standard I3D
+            # Mixed_3b/c: 192 → 256 (64+64+96+32)
+            # Mixed_4b-f: 256 → 480 (128+160+96+96)
+            # Mixed_5b/c: 576 → 832 (192+224+224+192)
+            if out_channels == 256:
+                branch_channels = [64, 64, 96, 32]
+            elif out_channels == 480:
+                branch_channels = [128, 160, 96, 96]
+            elif out_channels == 576:
+                branch_channels = [160, 192, 128, 96]
+            elif out_channels == 832:
+                branch_channels = [192, 224, 224, 192]
+            else:
+                # Even split
+                c = out_channels // 4
+                branch_channels = [c, c, c, c]
+
+        self.out0, self.out1, self.out2, self.out3 = branch_channels
+
         # Branch 0: 1x1x1
-        self.b0 = nn.Conv3d(in_channels, out_channels[0], kernel_size=1)
+        self.b0 = nn.Conv3d(in_channels, self.out0, kernel_size=1)
 
         # Branch 1: 1x1x1 -> 3x3x3
-        self.b1a = nn.Conv3d(in_channels, out_channels[1], kernel_size=1)
-        self.b1b = nn.Conv3d(out_channels[1], out_channels[2], kernel_size=(3, 3, 3), padding=(1, 1, 1))
+        self.b1a = nn.Conv3d(in_channels, self.out1 // 2, kernel_size=1)
+        self.b1b = nn.Conv3d(self.out1 // 2, self.out1, kernel_size=(3, 3, 3), padding=(1, 1, 1))
 
-        # Branch 2: 1x1x1 -> 3x3x3
-        self.b2a = nn.Conv3d(in_channels, out_channels[3], kernel_size=1)
-        self.b2b = nn.Conv3d(out_channels[3], out_channels[4], kernel_size=(3, 3, 3), padding=(1, 1, 1))
+        # Branch 2: 1x1x1 -> 3x3x3 (larger output)
+        self.b2a = nn.Conv3d(in_channels, self.out2 // 2, kernel_size=1)
+        self.b2b = nn.Conv3d(self.out2 // 2, self.out2, kernel_size=(3, 3, 3), padding=(1, 1, 1))
 
         # Branch 3: maxpool3d -> 1x1x1
         self.b3 = nn.MaxPool3d(kernel_size=(3, 3, 3), stride=(1, 1, 1), padding=(1, 1, 1))
-        self.b3b = nn.Conv3d(in_channels, out_channels[5], kernel_size=1)
+        self.b3b = nn.Conv3d(in_channels, self.out3, kernel_size=1)
 
         # Batch normalization and ReLU
-        self.bn = nn.BatchNorm3d(sum(out_channels))
+        self.bn = nn.BatchNorm3d(out_channels)
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -122,7 +146,7 @@ class InceptionModule3D(nn.Module):
         Args:
             x: (B, C, T, H, W)
         Returns:
-            out: (B, sum(out_channels), T, H, W)
+            out: (B, out_channels, T, H, W)
         """
         # Branch 0
         b0_out = self.b0(x)
@@ -137,7 +161,7 @@ class InceptionModule3D(nn.Module):
 
         # Branch 3
         b3_out = self.b3(x)
-        b3_out = b3b_out = self.b3b(b3_out)
+        b3_out = self.b3b(b3_out)
 
         # Concatenate all branches
         out = torch.cat([b0_out, b1_out, b2_out, b3_out], dim=1)
@@ -150,9 +174,13 @@ class InceptionModule3D(nn.Module):
 
 class I3DBackbone(nn.Module):
     """
-    Simplified I3D backbone for dynamic feature extraction.
+    Standard I3D backbone for dynamic feature extraction (832 output channels).
 
-    Based on InceptionI3D architecture but simplified for feature extraction.
+    Based on InceptionI3D architecture with standard channel dimensions:
+    - Stem: 3 → 64 → 192
+    - Mixed_3b, Mixed_3c: 192 → 256
+    - Mixed_4b to Mixed_4f: 256 → 480
+    - Mixed_5b, Mixed_5c: 480 → 832
     """
     def __init__(self, in_channels=3, num_classes=400):
         super().__init__()
@@ -171,25 +199,28 @@ class I3DBackbone(nn.Module):
         self.bn3 = nn.BatchNorm3d(192)
         self.maxpool2 = nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(1, 2, 2), padding=(0, 1, 1))
 
-        # Mixed_3b, Mixed_3c
-        self.mixed_3b = InceptionModule3D(192, [64, 96, 128, 16, 32, 32])
-        self.mixed_3c = InceptionModule3D(256, [128, 128, 192, 32, 96, 64])
+        # Mixed_3b, Mixed_3c: 192 → 256
+        self.mixed_3b = InceptionModule3D(192, 256)
+        self.mixed_3c = InceptionModule3D(256, 256)
         self.maxpool3 = nn.MaxPool3d(kernel_size=(3, 3, 3), stride=(2, 2, 2), padding=(1, 1, 1))
 
-        # Mixed_4b to Mixed_4f
-        self.mixed_4b = InceptionModule3D(480, [192, 96, 208, 16, 48, 64])
-        self.mixed_4c = InceptionModule3D(512, [160, 112, 224, 24, 64, 64])
-        self.mixed_4d = InceptionModule3D(512, [128, 128, 256, 24, 64, 64])
-        self.mixed_4e = InceptionModule3D(512, [112, 144, 288, 32, 64, 64])
-        self.mixed_4f = InceptionModule3D(528, [256, 160, 320, 32, 128, 128])
+        # Mixed_4b to Mixed_4f: 256 → 480
+        self.mixed_4b = InceptionModule3D(256, 480)
+        self.mixed_4c = InceptionModule3D(480, 480)
+        self.mixed_4d = InceptionModule3D(480, 480)
+        self.mixed_4e = InceptionModule3D(480, 480)
+        self.mixed_4f = InceptionModule3D(480, 480)
         self.maxpool4 = nn.MaxPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2), padding=(0, 0, 0))
 
-        # Mixed_5b, Mixed_5c
-        self.mixed_5b = InceptionModule3D(832, [256, 160, 320, 32, 128, 128])
-        self.mixed_5c = InceptionModule3D(832, [384, 192, 384, 48, 128, 128])
+        # Mixed_5b, Mixed_5c: 480 → 832
+        self.mixed_5b = InceptionModule3D(480, 832)
+        self.mixed_5c = InceptionModule3D(832, 832)
 
         # Classification head
-        self.avgpool = nn.AvgPool3d(kernel_size=(8, 7, 7), stride=(1, 1, 1))
+        # Use adaptive pooling to handle variable input sizes
+        # After Mixed_5c, output is (B, 832, T_out, H_out, W_out)
+        # AdaptiveAvgPool3d(1,1,1) will pool all dimensions to size 1
+        self.avgpool = nn.AdaptiveAvgPool3d((1, 1, 1))
         self.dropout = nn.Dropout(0.5)
         self.fc = nn.Linear(832, num_classes)
 
@@ -234,31 +265,37 @@ class DynamicFeatureExtractor(nn.Module):
     Dynamic Feature Extractor based on paper1231 Section C.
 
     Components:
-    1. I3D backbone for spatiotemporal features
-    2. Mixed convolution layers for expanded temporal receptive field
-    3. Spatial max pooling (as described in paper1231)
+    1. I3D backbone for spatiotemporal features (832 output channels)
+    2. Mixed convolution layers for expanded temporal receptive field (Eq.5)
+    3. Spatial max pooling (as described in paper1231 Eq.5)
+
+    Paper formula Eq.5:
+    F_clip(X_i) = maxpool (Conv_mix(X_i))
     """
     def __init__(self,
                  i3d_path=None,
                  use_pretrained_i3d=False,
                  output_dim=832,
-                 freeze_backbone=True):
+                 freeze_backbone=True,
+                 use_mixed_conv=True):
         """
         Args:
             i3d_path: Path to I3D checkpoint
             use_pretrained_i3d: Use pretrained I3D weights
-            output_dim: Output feature dimension (832 = I3D Mixed_5c channels)
+            output_dim: Output feature dimension (832 = standard I3D output channels)
             freeze_backbone: Freeze I3D backbone weights
+            use_mixed_conv: Apply mixed convolution as per paper1231 Eq.5
         """
         super().__init__()
 
         self.output_dim = output_dim
+        self.use_mixed_conv = use_mixed_conv
 
         # I3D backbone
-        self.i3d = I3DBackbone(in_channels=3, num_classes=output_dim)
+        self.i3d = I3DBackbone(in_channels=3, num_classes=400)
 
         # Remove classification head for feature extraction
-        # Keep features up to Mixed_5c
+        # Keep features up to Mixed_5c (output: 832 channels)
         self.feature_extractor = nn.Sequential(
             self.i3d.conv1, self.i3d.bn1, self.i3d.relu, self.i3d.maxpool1,
             self.i3d.conv2, self.i3d.bn2, self.i3d.relu,
@@ -268,6 +305,11 @@ class DynamicFeatureExtractor(nn.Module):
             self.i3d.mixed_4e, self.i3d.mixed_4f, self.i3d.maxpool4,
             self.i3d.mixed_5b, self.i3d.mixed_5c
         )
+
+        # Mixed convolution layer as per paper1231 Eq.5: F_clip(X_i) = maxpool(Conv_mix(X_i))
+        # This expands temporal receptive field before applying spatial max pooling
+        if use_mixed_conv:
+            self.mixed_conv = MixedConv3D(in_channels=output_dim, out_channels=output_dim, temporal_kernel=3)
 
         # Freeze backbone if specified
         if freeze_backbone:
@@ -280,27 +322,48 @@ class DynamicFeatureExtractor(nn.Module):
 
     def load_checkpoint(self, checkpoint_path):
         """Load I3D checkpoint."""
-        state_dict = torch.load(checkpointing_path, map_location='cpu')
+        state_dict = torch.load(checkpoint_path, map_location='cpu')
         self.i3d.load_state_dict(state_dict, strict=False)
         print(f"Loaded I3D checkpoint from {checkpoint_path}")
 
-    def forward(self, video):
+    def forward(self, video, return_features_map=False):
         """
         Extract dynamic features from video.
 
         Args:
             video: (B, C, T, H, W) - surgical video clip
+            return_features_map: Return intermediate feature map for attention
+
         Returns:
-            features: (B, output_dim) - spatiotemporal features
+            If return_features_map:
+                features_map: (B, C, T, H, W) - spatiotemporal feature map
+                pooled_features: (B, output_dim) - pooled features
+            Else:
+                features: (B, output_dim) - spatiotemporal features
         """
         # I3D expects (B, C, T, H, W)
         features = self.feature_extractor(video)  # (B, 832, T', H', W')
 
-        # Global average pooling over all dimensions
+        # Apply mixed convolution if enabled (paper1231 Eq.5: Conv_mix)
+        if self.use_mixed_conv:
+            features = self.mixed_conv(features)  # (B, 832, T', H', W')
+
+        # Save feature map for attention module
+        features_map = features  # (B, 832, T', H', W')
+
+        # Spatial max pooling along spatial dimensions (H, W) as per paper1231 Eq.5
+        # This preserves temporal dimension while reducing spatial dimension
+        features = F.max_pool3d(features, kernel_size=(1, features.size(3), features.size(4)),
+                               stride=(1, 1, 1))  # (B, 832, T', 1, 1)
+
+        # Global average pooling over remaining dimensions (T, 1, 1)
         features = F.adaptive_avg_pool3d(features, (1, 1, 1))  # (B, 832, 1, 1, 1)
         features = features.flatten(1)  # (B, 832)
 
-        return features
+        if return_features_map:
+            return features_map, features
+        else:
+            return features
 
 
 if __name__ == '__main__':
@@ -311,3 +374,8 @@ if __name__ == '__main__':
     features = model(video)
     print(f"Input video shape: {video.shape}")
     print(f"Output features shape: {features.shape}")
+
+    # Test with feature map return
+    features_map, pooled = model(video, return_features_map=True)
+    print(f"Features map shape: {features_map.shape}")
+    print(f"Pooled features shape: {pooled.shape}")
