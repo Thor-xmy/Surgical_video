@@ -24,7 +24,8 @@ print()
 print('STEP 0: CONFIGURATION VERIFICATION')
 print('=' * 80)
 
-B, C, T, H, W = 2, 3, 16, 224, 224
+# PAPER REQUIREMENT: 112x112 resolution
+B, C, T, H, W = 2, 3, 16, 112, 112
 clip_length = 16
 clip_stride = 10
 

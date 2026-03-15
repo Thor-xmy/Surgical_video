@@ -241,10 +241,10 @@ if __name__ == '__main__':
     # Test mask-guided attention module
     print("Testing MaskGuidedAttention module...")
 
-    # Create test inputs
+    # Create test inputs - Paper: 112x112 resolution
     B, C, T, H, W = 2, 832, 4, 7, 7
     dynamic_features = torch.randn(B, C, T, H, W)
-    masks = torch.randint(0, 2, (B, 16, 224, 224)).float()
+    masks = torch.randint(0, 2, (B, 16, 112, 112)).float()
 
     # Initialize module
     mask_attention = MaskGuidedAttention(enable_temporal_smoothing=True)

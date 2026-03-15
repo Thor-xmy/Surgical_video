@@ -25,7 +25,7 @@ model = SurgicalQAModel(config)
 print()
 
 # Test forward pass
-B, C, T, H, W = 2, 3, 16, 224, 224
+B, C, T, H, W = 2, 3, 16, 112, 112  # Paper requirement: 112x112
 video = torch.randn(B, C, T, H, W)
 masks = torch.randint(0, 2, (B, T, H, W)).float()
 

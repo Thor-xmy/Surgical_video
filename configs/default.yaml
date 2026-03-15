@@ -32,7 +32,7 @@ num_workers: 4
 # ============================================================================
 clip_length: 16    # Number of frames per clip
 clip_stride: 10    # Stride for clip extraction
-spatial_size: 224    # Resize video to (H, W)
+spatial_size: 112    # Resize video to (H, W) - paper requirement!
 spatial_crop: center    # Crop strategy (center, random, none)
 normalize: true    # Normalize pixel values to [-1, 1]
 

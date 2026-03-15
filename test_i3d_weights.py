@@ -23,7 +23,7 @@ i3d = InceptionI3d(
     final_endpoint='Logits'
 )
 
-video = torch.randn(2, 3, 16, 224, 224)
+video = torch.randn(2, 3, 16, 112, 112)  # Paper requirement
 print(f"   Input video shape: {video.shape}")
 
 try:
@@ -43,14 +43,14 @@ from models.dynamic_feature_extractor import DynamicFeatureExtractor
 custom_extractor = DynamicFeatureExtractor(
     i3d_path='/home/thor/pytorch-i3d/models/rgb_imagenet.pt',
     use_pretrained_i3d=True,
-    output_dim=832,
+    output_dim=1024,  # Standard I3D output
     freeze_backbone=True
 )
 
 print(f"   Custom extractor initialized")
 print(f"   Feature extractor parameters: {sum(p.numel() for p in custom_extractor.feature_extractor.parameters()):,}")
 
-video = torch.randn(2, 3, 16, 224, 224)
+video = torch.randn(2, 3, 16, 112, 112)  # Paper requirement
 print(f"   Input video shape: {video.shape}")
 
 try:

@@ -9,17 +9,19 @@ sys.path.insert(0, '.')
 
 print('\n')
 print('=' * 100)
-print('COMPLETE DATA FLOW TRACE: Surgical QA Model (B=2, C=3, T=16, H=224, W=224)')
+print('COMPLETE DATA FLOW TRACE: Surgical QA Model (B=2, C=3, T=16, H=112, W=112)')
 print('=' * 100)
 print('\n')
 
 # Configuration
-B, C, T, H, W = 2, 3, 16, 224, 224
+# PAPER REQUIREMENT: 112x112 resolution
+B, C, T, H, W = 2, 3, 16, 112, 112
 print(f'Input Configuration:')
 print(f'  Batch Size (B): {B}')
 print(f'  Channels (C): {C}')
 print(f'  Frames (T): {T}')
 print(f'  Height (H): {H}')
+}')
 print(f'  Width (W): {W}')
 print()
 
