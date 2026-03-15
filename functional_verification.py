@@ -25,7 +25,8 @@ print()
 # ============================================================================
 # 配置
 # ============================================================================
-B, C, T, H, W = 2, 3, 16, 224, 224
+# PAPER REQUIREMENT: 112x112 resolution, 1024 channels for I3D
+B, C, T, H, W = 2, 3, 16, 112, 112
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f'Device: {device}')
 print(f'Batch size: {B}, Channels: {C}, Frames: {T}, Size: {H}x{W}')
@@ -53,11 +54,11 @@ for frame in range(100):
     if frame < 50:
         video_frame = np.ones((H, W, 3), dtype=np.uint8) * 200
         # 中间区域：深色（模拟器械）
-        video_frame[100:180, 100:180] = 50
+        video_frame[40:72, 40:72] = 50  # 适配112x112
     else:
         video_frame = np.zeros((H, W, 3), dtype=np.uint8)
         # 中间区域：白色（模拟器械）
-        video_frame[100:180, 100:180] = 255
+        video_frame[40:72, 40:72] = 255  # 适配112x112
     writer.write(video_frame)
 writer.release()
 
@@ -67,7 +68,7 @@ os.makedirs(mask_dir, exist_ok=True)
 for frame in range(100):
     mask = np.zeros((H, W), dtype=np.uint8)
     # 器械区域设置为255
-    mask[100:180, 100:180] = 255
+    mask[40:72, 40:72] = 255  # 适配112x112
     cv2.imwrite(os.path.join(mask_dir, f'frame_{frame:04d}_mask.png'), mask)
 
 # 创建标注
@@ -96,7 +97,7 @@ sample = dataset[0]
 masks = sample['masks']
 if masks is not None:
     # 检查掩膜中间区域是否接近1.0（归一化后）
-    center_region = masks[0, 130:150, 130:150]
+    center_region = masks[0, 50:65, 50:65]  # 适配112x112
     center_mean = center_region.mean().item()
     print(f'  Mask center region mean: {center_mean:.4f}')
     print(f'  ✓ Expected: ~1.0 (instrument region)')
@@ -116,7 +117,7 @@ print()
 print('Verification 1.2: Check video frame content')
 frames = sample['frames'].numpy()
 # 检查中间帧
-center_frame = frames[:, 0, 130:150, 130:150].mean()
+center_frame = frames[:, 0, 50:65, 50:65].mean()  # 适配112x112
 print(f'  Frame center region mean: {center_frame:.4f}')
 print(f'  ✓ Frame data loaded correctly')
 
@@ -190,7 +191,7 @@ for t in range(T):
     dynamic_test_video[:, :, t, :, :] += pattern
 
 dynamic_extractor = DynamicFeatureExtractor(
-    output_dim=832,
+    output_dim=1024,  # Standard I3D outputs 1024 channels
     use_mixed_conv=True
 ).to(device)
 
@@ -209,7 +210,7 @@ print()
 print('Verification 3.2: Check channel diversity')
 feat_channel_std = pooled.std(dim=1).mean().item()  # 沿通道维度的标准差
 print(f'  Feature channel variation (std across channels): {feat_channel_std:.6f}')
-print(f'  ✓ Expected: Significant (832 channels should be diverse)')
+print(f'  ✓ Expected: Significant (1024 channels should be diverse)')
 print(f'  ✓ Channel diversity captured: {feat_channel_std > 0.01}')
 
 # ============================================================================
@@ -224,7 +225,7 @@ print()
 from models.mask_guided_attention import MaskGuidedAttention
 
 # 创建测试输入
-C_dynamic, T_dynamic, H_dynamic, W_dynamic = 832, 4, 7, 7
+C_dynamic, T_dynamic, H_dynamic, W_dynamic = 1024, 2, 4, 4  # 112x112 input → I3D output
 dynamic_features = torch.randn(B, C_dynamic, T_dynamic, H_dynamic, W_dynamic).to(device)
 
 # 创建掩膜：一半区域为1，一半为0
@@ -261,7 +262,7 @@ print('Verification 4.2: Check if mask intensity affects feature intensity')
 # 原始特征的L2范数
 original_norm = torch.norm(dynamic_features, p=2).item()
 # 掩膜后特征的L2范数（全1掩膜）
-masked_norm = torch.norm(dynamic_features * 2.0, p=2).item()  # A+1 = 2
+masked_norm = torch.norm(dynamic_features[0:1] * 2.0, p=2).item()  # A+1 = 2
 print(f'  Original feature L2 norm: {original_norm:.2f}')
 print(f'  Masked feature L2 norm (mask=1): {masked_norm:.2f}')
 print(f'  ✓ Mask enhances feature magnitude: {masked_norm > original_norm}')
@@ -279,7 +280,7 @@ from models.surgical_qa_model import SurgicalQAModel
 
 config = {
     'static_dim': 512,
-    'dynamic_dim': 832,
+    'dynamic_dim': 1024,  # Standard I3D outputs 1024 channels
     'use_pretrained': False,
     'freeze_backbone': False
 }
@@ -363,7 +364,7 @@ curr_param = list(model.parameters())[0].detach()
 
 param_changed = (prev_param - curr_param).abs().mean().item()
 print(f'  Parameter change after optimizer: {param_changed:.8f}')
-print(f'  ✓ Optimization step successful: {param_changed > 0}')
+print(f'  ✓ Optimization step successful: {param_changed > 0.1e-6}')
 
 # ============================================================================
 # 步骤 7: 完整训练循环测试（Mini training）

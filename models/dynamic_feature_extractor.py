@@ -188,7 +188,7 @@ class InceptionModule(nn.Module):
 
 class InceptionI3D(nn.Module):
     """
-    Standard I3D backbone for dynamic feature extraction (832 output channels).
+    Standard I3D backbone for dynamic feature extraction (1024 output channels).
 
     This is the OFFICIAL I3D implementation matching PyTorchConv3D/pytorch-i3d.
 
@@ -197,8 +197,8 @@ class InceptionI3D(nn.Module):
     - Stem: 3 -> 64 -> 192 with 7x7x7 kernel (standard)
     - Mixed_3b, Mixed_3c: 192 -> 256
     - Mixed_4b to Mixed_4f: 256 -> 480
-    - Mixed_5b, Mixed_5c: 480 -> 832
-    - Output at Mixed_5c: (B, 832, 4, 4, 4) for feature extraction
+    - Mixed_5b, Mixed_5c: 480 -> 1024
+    - Output at Mixed_5c: (B, 1024, 4, 4, 4) for feature extraction
 
     This class DOES NOT include classification head (AvgPool + FC).
     It's designed for feature extraction up to Mixed_5c.
@@ -369,7 +369,7 @@ class DynamicFeatureExtractor(nn.Module):
     Now uses STANDARD I3D implementation (InceptionI3D).
 
     Components:
-    1. Standard I3D backbone for spatiotemporal features (832 output channels)
+    1. Standard I3D backbone for spatiotemporal features (1024 output channels)
     2. Mixed convolution layers for expanded temporal receptive field (Eq.5)
     3. Spatial max pooling (as described in paper1231 Eq.5)
 
@@ -378,20 +378,20 @@ class DynamicFeatureExtractor(nn.Module):
 
     Input-Output Interface (unchanged from custom version):
     - Input: (B, 3, T, H, W) - surgical video clip
-    - Output (return_features_map=False): (B, 832) - pooled features
-    - Output (return_features_map=True): (B, 832, T', H', W'), (B, 832)
+    - Output (return_features_map=False): (B, 1024) - pooled features
+    - Output (return_features_map=True): (B, 1024, T', H', W'), (B, 1024)
     """
     def __init__(self,
                  i3d_path=None,
                  use_pretrained_i3d=False,
-                 output_dim=832,
+                 output_dim=1024,
                  freeze_backbone=True,
                  use_mixed_conv=True):
         """
         Args:
             i3d_path: Path to I3D checkpoint (from PyTorchConv3D/pytorch-i3d)
             use_pretrained_i3d: Use pretrained I3D weights
-            output_dim: Output feature dimension (832 = standard)
+            output_dim: Output feature dimension (1024 = standard I3D output)
             freeze_backbone: Freeze I3D backbone weights
             use_mixed_conv: Apply mixed convolution as per paper1231 Eq.5
         """
@@ -467,29 +467,29 @@ class DynamicFeatureExtractor(nn.Module):
 
         Returns:
             If return_features_map:
-                features_map: (B, 832, T', H', W') - spatiotemporal feature map
+                features_map: (B, 1024, T', H', W') - spatiotemporal feature map
                 pooled_features: (B, output_dim) - pooled features
             Else:
                 features: (B, output_dim) - spatiotemporal features
         """
         # I3D expects (B, C, T, H, W)
-        features = self.feature_extractor(video)  # (B, 832, 4, 4, 4) for 112x112 input
+        features = self.feature_extractor(video)  # (B, 1024, 2, 4, 4) for 112x112 input
 
         # Apply mixed convolution if enabled (paper1231 Eq.5: Conv_mix)
         if self.use_mixed_conv:
-            features = self.mixed_conv(features)  # (B, 832, 4, 4, 4)
+            features = self.mixed_conv(features)  # (B, 1024, 2, 4, 4)
 
         # Save feature map for attention module
-        features_map = features  # (B, 832, T', H', W')
+        features_map = features  # (B, 1024, T', H', W')
 
         # Spatial max pooling along spatial dimensions (H, W) as per paper1231 Eq.5
         # This preserves temporal dimension while reducing spatial dimension
         features = F.max_pool3d(features, kernel_size=(1, features.size(3), features.size(4)),
-                               stride=(1, 1, 1))  # (B, 832, T', 1, 1)
+                               stride=(1, 1, 1))  # (B, 1024, T', 1, 1)
 
         # Global average pooling over remaining dimensions (T, 1, 1)
-        features = F.adaptive_avg_pool3d(features, (1, 1, 1))  # (B, 832, 1, 1, 1)
-        features = features.flatten(1)  # (B, 832)
+        features = F.adaptive_avg_pool3d(features, (1, 1, 1))  # (B, 1024, 1, 1, 1)
+        features = features.flatten(1)  # (B, 1024)
 
         if return_features_map:
             return features_map, features
@@ -499,7 +499,7 @@ class DynamicFeatureExtractor(nn.Module):
 
 if __name__ == '__main__':
     # Test module
-    model = DynamicFeatureExtractor(output_dim=832)
+    model = DynamicFeatureExtractor(output_dim=1024)
     video = torch.randn(2, 3, 16, 112, 112)  # B=2, C=3, T=16, H=W=112 (paper size)
 
     features = model(video)

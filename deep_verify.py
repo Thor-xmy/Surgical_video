@@ -11,7 +11,8 @@ import torch
 
 sys.path.insert(0, '.')
 
-B, C, T, H, W = 2, 3, 16, 224, 224
+# PAPER REQUIREMENT: 112x112 resolution
+B, C, T, H, W = 2, 3, 16, 112, 112
 
 print('=' * 80)
 print('数据流逐步验证')
@@ -52,8 +53,8 @@ mask_dir = os.path.join(tmp_dir, 'masks', 'test')
 os.makedirs(mask_dir, exist_ok=True)
 for frame in range(100):
     mask = np.zeros((H, W), dtype=np.uint8)
-    # 在[80:120, 80:120]区域画一个白色区域（模拟器械）
-    mask[80:120, 80:120] = 255
+    # 在[40:72, 40:72]区域画一个白色区域（模拟器械），适配112x112
+    mask[40:72, 40:72] = 255
     cv2.imwrite(os.path.join(mask_dir, f'frame_{frame:04d}_mask.png'), mask)
 
 # 创建标注
@@ -92,19 +93,19 @@ for i in range(min(3, dataset_len)):
     sample = dataset[i]
     print(f'\nClip {i}:')
     print(f'  Keys: {list(sample.keys())}')
-    
+
     if 'video_id' in sample:
         print(f"  video_id: {sample['video_id']}")
-    
+
     if 'global_clip_idx' in sample:
         print(f"  global_clip_idx: {sample['global_clip_idx']}")
-    
+
     if 'score' in sample:
         score_val = sample['score']
         if isinstance(score_val, torch.Tensor):
             score_val = score_val.item()
         print(f'  score: {score_val}')
-    
+
     if 'frames' in sample:
         frames_shape = sample['frames'].shape
         expected_frames_shape = (C, T, H, W)
@@ -114,17 +115,17 @@ for i in range(min(3, dataset_len)):
             print(f' ✓ frames形状正确')
         else:
             print(f' ✗ frames形状错误！')
-    
+
     if 'masks' in sample:
         masks_shape = sample['masks'].shape
         expected_masks_shape = (T, H, W)
         print(f'  masks shape: {masks_shape}')
-        print(f' 期望: {expected_masks_shape}')
+        print(f'  期望: {expected_masks_shape}')
         if masks_shape == expected_masks_shape:
             print(f' ✓ masks形状正确')
         else:
             print(f' ✗ masks形状错误！')
-    
+
     if 'clip_info' in sample:
         clip_info = sample['clip_info']
         print(f'  clip_info keys: {list(clip_info.keys())}')
@@ -179,7 +180,7 @@ from models.dynamic_feature_extractor import DynamicFeatureExtractor
 
 print('创建动态特征提取器...')
 dynamic_extractor = DynamicFeatureExtractor(
-    output_dim=832,
+    output_dim=1024,  # Standard I3D outputs 1024 channels
     use_mixed_conv=True
 )
 
@@ -192,8 +193,8 @@ feat_map, feat_pooled = dynamic_extractor(test_video, return_features_map=True)
 print(f'特征图shape: {feat_map.shape}')
 print(f'池化特征shape: {feat_pooled.shape}')
 
-# 检查特征图
-expected_feat_map_shape = (B, 832, 4, 7, 7)
+# 检查特征图 (112x112输入 → I3D Mixed_5c输出: (B, 1024, 2, 4, 4))
+expected_feat_map_shape = (B, 1024, 2, 4, 4)
 print(f'期望特征图shape: {expected_feat_map_shape}')
 
 if feat_map.shape == expected_feat_map_shape:
@@ -202,7 +203,7 @@ else:
     print(f'✗ 特征图形状错误！期望{expected_feat_map_shape}，实际{feat_map.shape}')
     sys.exit(1)
 
-if feat_pooled.shape == torch.Size([B, 832]):
+if feat_pooled.shape == torch.Size([B, 1024]):
     print('✓ 池化特征形状正确')
 else:
     print('✗ 池化特征形状错误！')
@@ -221,32 +222,31 @@ print('创建掩膜引导注意力模块...')
 attention_module = MaskGuidedAttention(enable_temporal_smoothing=True)
 
 # 创建测试输入
-dynamic_features = torch.randn(B, 832, 4, 7, 7)
+dynamic_features = torch.randn(B, 1024, 2, 4, 4)  # I3D output shape for 112x112
 masks = torch.randint(0, 2, (B, T, H, W)).float()
 print(f'动态特征shape: {dynamic_features.shape}')
 print(f'掩膜shape: {masks.shape}')
 
 print('应用掩膜注意力...')
 masked_features, attention_map, mask_loss = attention_module(
-    dynamic_features, 
-    masks, 
+    dynamic_features,
+    masks,
     return_attention_map=True
 )
 print(f'掩膜引导的动态特征D: {masked_features.shape}')
 print(f'注意力图shape: {attention_map.shape}')
-print(f'期望D: ({B}, 832)')
+print(f'期望D: ({B}, 1024)')
 
-if masked_features.shape == torch.Size([B, 832]):
+if masked_features.shape == torch.Size([B, 1024]):
     print('✓ 掩膜引导的动态特征D形状正确')
 else:
     print('✗ 掩膜引导的动态特征D形状错误！')
     sys.exit(1)
 
 # 注意力图形状应该与I3D特征图的时空维度一致
-# Temporal dimension: T=16帧 → I3D输出T'=4帧 (stride=4)
-expected_attention_shape = torch.Size([B, 4, 7, 7])
+expected_attention_shape = torch.Size([B, 2, 4, 4])  # I3D output for 112x112
 if attention_map.shape == expected_attention_shape:
-    print('✓ 注意力图形状正确')
+    print('✓ 注意力面形状正确')
 else:
     print(f'✗ 注意力图形状错误！期望{expected_attention_shape}，实际{attention_map.shape}')
     sys.exit(1)
@@ -268,7 +268,7 @@ from models.surgical_qa_model import SurgicalQAModel
 print('创建主模型...')
 config = {
     'static_dim': 512,
-    'dynamic_dim': 832,
+    'dynamic_dim': 1024,  # Standard I3D outputs 1024 channels
     'use_pretrained': False,
     'freeze_backbone': False,
     'use_mask_loss': True
@@ -312,46 +312,45 @@ else:
     print('✗ 静态特征A形状错误！')
 
 print(f'  动态特征图C: {features_dict["dynamic_feat_map"].shape}')
-print(f' 期望: ({B}, 832, 4, 7, 7)')
+print(f'  期望: ({B}, 1024, 2, 4, 4)')  # 112x112 input → I3D output
 
-if features_dict["dynamic_feat_map"].shape == torch.Size([B, 832, 4, 7, 7]):
+if features_dict["dynamic_feat_map"].shape == torch.Size([B, 1024, 2, 4, 4]):
     print('✓ 动态特征图C形状正确')
 else:
     print('✗ 动态特征图C形状错误！')
     sys.exit(1)
 
 print(f'  池化动态特征D: {features_dict["dynamic_raw"].shape}')
-print(f' 期望: ({B}, 832)')
-if features_dict["dynamic_raw"].shape == torch.Size([B, 832]):
+print(f'  期望: ({B}, 1024)')
+if features_dict["dynamic_raw"].shape == torch.Size([B, 1024]):
     print('✓ 池化动态特征D形状正确')
 else:
-    print('✗  池化动态特征D形状错误！')
+    print('✗ 池化动态特征D形状错误！')
     sys.exit(1)
 
 print(f'  掩膜引导的动态特征D: {features_dict["dynamic_masked"].shape}')
-print(f'期望: ({B}, 832)')
-if features_dict["dynamic_masked"].shape == torch.Size([B, 832]):
+print(f' 期望: ({B}, 1024)')
+if features_dict["dynamic_masked"].shape == torch.Size([B, 1024]):
     print('✓ 掩膜引导的动态特征D形状正确')
 else:
     print('✗ 掩膜引导的动态特征D形状错误！')
     sys.exit(1)
 
 print(f'  注意力图: {features_dict["attention_map"].shape}')
-# 注意力图应该与I3D特征图的时空维度一致（经过temporal stride=4降采样后）
-# T=16帧 → T'=4帧
-print(f'期望: ({B}, 4, 7, 7)')  # I3D Mixed_5c输出: (B, 832, 4, 7, 7)
-if features_dict["attention_map"].shape == torch.Size([B, 4, 7, 7]):
+# 注意力图应该与I3D特征图的时空维度一致（112x112输入 → I3D输出2x4x4）
+print(f'期望: ({B}, 2, 4, 4)')  # I3D Mixed_5c输出: (B, 1024, 2, 4, 4)
+if features_dict["attention_map"].shape == torch.Size([B, 2, 4, 4]):
     print('✓ 注意力图形状正确')
 else:
     print('✗ 注意力图形状错误！')
     sys.exit(1)
 
 print(f' 融合特征: {features_dict["fused"].shape}')
-print(f'期望: ({B}, 1344)')
-if features_dict["fused"].shape == torch.Size([B, 1344]):
+print(f'期望: ({B}, 1536)')  # 512 + 1024 = 1536
+if features_dict["fused"].shape == torch.Size([B, 1536]):
     print('✓ 融合特征形状正确')
 else:
-    print('✓ 融合特征形状错误！')
+    print('✗ 融合特征形状错误！')
     sys.exit(1)
 
 print()
@@ -401,8 +400,8 @@ expected_val = int(expected_total_clips * 0.1)  # 10%
 expected_test = expected_total_clips - expected_train - expected_val
 
 print(f'  训练集（预期{expected_train}，实际{len(dataloader.train_dataset)}）')
-print(f' 验证集（预期{expected_val}，实际{len(dataloader.val_dataset)}）')
-print(f' 测试集（预期{expected_test}，实际{len(dataloader.test_dataset)}）')
+print(f'  验证集（预期{expected_val}，实际{len(dataloader.val_dataset)}）')
+print(f'  测试集（预期{expected_test}，实际{len(dataloader.test_dataset)}）')
 
 if len(dataloader.train_dataset) == expected_train:
     print('✓ 训练集大小正确')
@@ -413,16 +412,17 @@ else:
 if len(dataloader.val_dataset) == expected_val:
     print('✓ 验证集大小正确')
 else:
-    print(f'✓ 验证集大小错误！预期{expected_val}，实际{len(dataloader.val_dataset)}')
+    print(f'✗ 验证集大小错误！预期{expected_val}，实际{len(dataloader.val_dataset)}')
     sys.exit(1)
 
 if len(dataloader.test_dataset) == expected_test:
     print('✓ 测试集大小正确')
 else:
-    print(f'✓ 测试集大小错误！预期{expected_test}，实际{len(dataloader.test_dataset)}')
+    print(f'✗ 测试集大小错误！预期{expected_test}，实际{len(dataloader.test_dataset)}')
     sys.exit(1)
 
 print()
+
 print('获取训练batch（检查batch结构）...')
 train_batch = next(iter(dataloader.train_loader))
 print(f'Batch keys: {list(train_batch.keys())}')
@@ -461,7 +461,7 @@ if 'score' in train_batch:
 
 if 'global_clip_idx' in train_batch:
     print(f'  global_clip_idx: {train_batch["global_clip_idx"]}')
-    
+
 print()
 
 print('✅ 所有batch结构检查通过！')
@@ -474,7 +474,7 @@ print()
 
 print('完整数据流总结：')
 print()
-print('输入视频X: (B,C,T,H,W) = (2,3,16,224,224)')
+print(f'输入视频X: (B,C,T,H,W) = ({B},{C},{T},{H},{W})')  # 112x112
 print()
 print('数据流向步骤：')
 print('1. 数据加载器:')
@@ -488,7 +488,7 @@ print('2. 静态特征A (ResNet-34):')
 print('   - 输入: video X (B,C,T,H,W)')
 print('   - 输出: A (B,512)')
 print('   - 采样：中间帧 (B,C,1,H,W)')
-print('   - ResNet-34 backbone → (B,512,H/32,W/32)')
+print('   - ResNet-34 backbone → (B,512,H/32,W,W/32)')
 print('   - 多尺度下采样: stride{2,4,8} → 拼接3分支')
 print('   - 拼接: (B,128,1,1) × 3) → (B,384,1,1)')
 print('   - 投影：→512维')
@@ -501,27 +501,27 @@ print('   - 空间对齐：对齐到I3D特征图')
 print()
 print('4. I3D动态特征C:')
 print('   - 输入: video X (B,C,T,H,W)')
-print('   - 输出： 特征图C (B,832,4,7,7) + 池化特征 (B,832)')
+print(f'   - 输出： 特征图C (B,1024,2,4,4) + 池化特征 (B,1024)')  # 112x112 input
 print('   - Mixed_5c输出（paper1231 Eq.5）')
 print('   - 说明：此C用于掩膜引导注意力')
 print()
 print('5. 掩膜引导注意力（B作用于C得到D）:')
-print('   - 输入：动态特征图C (B,832,4,7,7)')
+print(f'   - 输入：动态特征图C (B,1024,2,4,4)')  # 112x112 input
 print('   - 输入：掩膜B (B,T,H,W)')
 print('   - 时间平滑：T/2帧 → 对齐到特征图')
-print('   - 对齐：对齐到C (B,4,7,7)')
+print(f'   - 对齐：对齐到C (B,2,4,4)')  # 112x112 input
 print('   - 注意力：A + 1（器械区域2x增强，背景1x保持）')
 print('   - 元素点乘：F_clip × (A + 1)')
-print('   - 输出：D (B,832,4,7,7)')
-print('   - 池化：全局平均池化→ (B,832)')
+print(f'   - 输出：D (B,1024,2,4,4)')
+print('   - 池化：全局平均池化→ (B,1024)')
 print()
 print('6. 特征融合（A⊕D）:')
-print('   - 输入：A (B,512), D (B,832)')
-print('   - 拼接：A⊕D (B,1344)')
+print('   - 输入：A (B,512), D (B,1024)')
+print('   - 拼接：A⊕D (B,1536)')  # 512 + 1024 = 1536
 print()
 print('7. MLP回归（分数y）:')
-print('   - 输入：融合特征 (B,1344)')
-print('   - MLP结构: 1344→1024→512→256→128→64→1')
+print('   - 输入：融合特征 (B,1536)')
+print('   - MLP结构: 1536→1024→512→256→128→64→1')
 print('   - 输出：分数y (B,1)')
 print()
 print('=' * 80)

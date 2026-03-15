@@ -108,7 +108,7 @@ class SurgicalQAModel(nn.Module):
         Args:
             config: Configuration dict with:
                 - static_dim: Static feature dimension (default: 512)
-                - dynamic_dim: Dynamic feature dimension (default: 832)
+                - dynamic_dim: Dynamic feature dimension (default: 1024)
                 - resnet_path: Path to ResNet checkpoint (optional)
                 - i3d_path: Path to I3D checkpoint (optional)
                 - use_pretrained: Use ImageNet pretrained weights
@@ -326,7 +326,7 @@ if __name__ == '__main__':
     # Test model
     config = {
         'static_dim': 512,
-        'dynamic_dim': 832,
+        'dynamic_dim': 1024,  # Standard I3D outputs 1024 channels
         'use_pretrained': False,
         'freeze_backbone': True,
         'use_mask_loss': True
@@ -336,8 +336,8 @@ if __name__ == '__main__':
     model.count_parameters()
 
     # Test forward pass
-    video = torch.randn(2, 3, 16, 224, 224)  # (B, C, T, H, W)
-    masks = torch.randint(0, 2, (2, 16, 224, 224)).float()
+    video = torch.randn(2, 3, 16, 112, 112)  # (B, C, T, H, W) - paper requires 112x112
+    masks = torch.randint(0, 2, (2, 16, 112, 112)).float()
 
     score = model(video, masks)
     print(f"Video shape: {video.shape}")

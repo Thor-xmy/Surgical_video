@@ -64,23 +64,23 @@ for i in range(3):
     # Create video
     video_path = os.path.join(tmp_dir, 'videos', f'{video_id}.mp4')
     writer = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*'mp4v'),
-                                    30.0, (224, 224))
+                                    30.0, (112, 112))  # Paper requires 112x112
     for frame in range(100):
-        writer.write(np.random.randint(0, 256, (224, 224, 3), dtype=np.uint8))
+        writer.write(np.random.randint(0, 256, (112, 112, 3), dtype=np.uint8))
     writer.release()
 
     # Create mask directory
     mask_dir = os.path.join(tmp_dir, 'masks', video_id)
     os.makedirs(mask_dir, exist_ok=True)
     for frame in range(100):
-        mask = np.random.randint(0, 256, (224, 224), dtype=np.uint8)
+        mask = np.random.randint(0, 256, (112, 112), dtype=np.uint8)
         cv2.imwrite(os.path.join(mask_dir, f'frame_{frame:04d}_mask.png'), mask)
 
 print('   ✓ Created test dataset (3 videos x 100 frames each)')
 
 # 5. Test SurgicalVideoDataset
 print('\n5. Testing SurgicalVideoDataset with clip caching...')
-dataset = SurgicalVideoDataset(tmp_dir, clip_length=16, clip_stride=10, spatial_size=(224, 224), cache_clips=True)
+dataset = SurgicalVideoDataset(tmp_dir, clip_length=16, clip_stride=10, spatial_size=(112, 112), cache_clips=True)  # Paper requires 112x112
 dataset_len = len(dataset)
 print(f'   ✓ Dataset: length={dataset_len}')
 print(f'   ✓ Expected: 90 clips (3 videos x 30 clips each)')

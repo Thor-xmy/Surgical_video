@@ -194,7 +194,7 @@ class StaticFeatureExtractor(nn.Module):
 if __name__ == '__main__':
     # Test the module
     model = StaticFeatureExtractor(output_dim=512)
-    video = torch.randn(2, 3, 16, 224, 224)  # B=2, C=3, T=16, H=W=224
+    video = torch.randn(2, 3, 16, 112, 112)  # B=2, C=3, T=16, H=W=112 (paper requirement)
 
     features = model(video)
     print(f"Input video shape: {video.shape}")
