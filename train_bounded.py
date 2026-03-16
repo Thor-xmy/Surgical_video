@@ -6,9 +6,9 @@ Training Script for Surgical QA Model (Bounded Version)
 修改说明：
 1. 使用 SurgicalQAModelBounded（带 Sigmoid 的有界回归器）
 2. 使用 SurgicalQADataLoaderNormalized（带分数归一化）
-3. 标签归一化：GRS [1,30] → [0,1]
+3. 标签归一化：GRS [6,30] → [0,1]
 4. 模型输出：[0,1]（Sigmoid）
-5. 推理时反归一化：[0,1] → [1,10] 或 [1,30]
+5. 推理时反归一化：[0,1] → [1,10] 或 [6,30]
 
 Usage:
     python train_bounded.py --config configs/bounded.yaml --gpus 0

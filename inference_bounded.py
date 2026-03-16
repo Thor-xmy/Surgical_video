@@ -7,7 +7,7 @@ Inference Script for Surgical QA Model (Bounded Version)
 修改说明：
 1. 使用 SurgicalQAModelBounded（带 Sigmoid 输出）
 2. 模型输出范围 [0, 1]，反归一化到目标范围
-3. 支持多个目标范围：论文分数 [1, 10] 或原始 GRS [6, 30]
+3. JIGSAWS GRS 分数范围 [6, 30]，推理时输出 [6, 30]
 
 Usage:
     python inference_bounded.py --config configs/bounded.yaml \
@@ -29,8 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from models.surgical_qa_model_bounded import SurgicalQAModelBounded, build_model_bounded
 
 
-def process_video(model, video_path, mask_dir, device='cuda',
-                  target_range=(6.0, 30.0)):
+def process_video(model, video_path, mask_dir, device='cuda'):
     """
     处理单个视频并预测技能分数
 
@@ -39,13 +38,11 @@ def process_video(model, video_path, mask_dir, device='cuda',
         video_path: 视频文件路径
         mask_dir: 掩膜目录
         device: 推理设备
-        target_range: 目标分数范围 (min, max)
 
     Returns:
-        score: 预测分数（在 target_range 范围内）
+        score: 预测分数（JIGSAWS GRS范围 [6, 30]）
     """
     print(f"\n正在处理视频: {video_path}")
-    print(f"目标分数范围: [{target_range[0]}, {target_range[1]}]")
 
     # 1. 加载视频
     print("  1. 加载视频帧...")
@@ -63,7 +60,7 @@ def process_video(model, video_path, mask_dir, device='cuda',
     print(f"      共 {total_frames} 帧")
 
     if total_frames < 16:
-        print(f"      警告: 视频帧数 ({total_frames}) 少于 16，无法处理")
+        print(f"      警告: 视频帧数 ({total) 少于 16，无法处理")
         return None
 
     # 2. 提取 clip（取中间16帧）
@@ -143,18 +140,15 @@ def process_video(model, video_path, mask_dir, device='cuda',
 
         score_normalized, _ = model(clip_tensor, masks)
 
-    # 6. 反归一化分数
+    # 6. 反归一化分数（从 [0,1] 到 [6,30]）
     print("  6. 反归一化分数...")
     if hasattr(model, 'denormalize_score'):
-        # 【正确逻辑】
-        # 网络输出 score_normalized 固定在 [0, 1] 之间（norm_min=0.0, norm_max=1.0）
-        # 我们要将其映射到用户期望的 target_range（如 6 到 30，或 1 到 10）
         score = model.denormalize_score(
             score_normalized,
-            target_min=target_range[0],     # 目标范围最小值（如 6.0 或 1.0）
-            target_max=target_range[1],     # 目标范围最大值（如 30.0 或 10.0）
-            norm_min=0.0,                # 归一化范围最小值（固定 0.0）
-            norm_max=1.0                  # 归一化范围最大值（固定 1.0）
+            target_min=6.0,   # JIGSAWS GRS 最小值
+            target_max=30.0,  # JIGSAWS GRS 最大值
+            norm_min=0.0,     # 归一化范围最小
+            norm_max=1.0       # 归一化范围最大
         )
     else:
         # 手动反归一化（备用分支）
@@ -163,10 +157,8 @@ def process_video(model, video_path, mask_dir, device='cuda',
         if np.ndim(score_normalized_np) == 0:
             score_normalized_np = float(score_normalized_np)
 
-        # 正确的手动公式：(norm - 0) / 1 * (target_max - target_min) + target_min
-        # 简化后：score = norm * (target_range) + target_min
-        target_range_diff = target_range[1] - target_range[0]
-        score = score_normalized_np * target_range_diff + target_range[0]
+        # 手动公式：(norm - 0) / 1 * (30 - 6) + 6 = (norm - 0) * 24 + 6
+        score = score_normalized_np * 24.0 + 6.0
 
     return float(score)
 
@@ -189,10 +181,6 @@ def batch_inference(model, video_dir, mask_dir, config, device='cuda'):
     print("批 量 推 理 模 式")
     print("="*60)
 
-    # 设置目标范围
-    target_range = tuple(config.get('inference_target_range', [6.0, 30.0]))
-    print(f"目标分数范围: {target_range}")
-
     # 获取所有视频文件
     video_files = sorted(glob.glob(os.path.join(video_dir, '*.mp4')))
     print(f"找到 {len(video_files)} 个视频文件")
@@ -206,8 +194,7 @@ def batch_inference(model, video_dir, mask_dir, config, device='cuda'):
             model=model,
             video_path=video_file,
             mask_dir=mask_dir,
-            device=device,
-            target_range=target_range
+            device=device
         )
 
         if score is not None:
@@ -229,18 +216,6 @@ def batch_inference(model, video_dir, mask_dir, config, device='cuda'):
         print(f"中位分数: {np.median(scores):.2f}")
         print(f"标准差: {np.std(scores):.2f}")
 
-        # 技能等级分布
-        expert_count = sum(1 for s in scores if s >= 9.0)
-        proficient_count = sum(1 for s in scores if 7.0 <= s < 9.0)
-        intermediate_count = sum(1 for s in scores if 5.0 <= s < 7.0)
-        novice_count = sum(1 for s in scores if s < 5.0)
-
-        print(f"\n技能等级分布:")
-        print(f"  Expert (9.0+): {expert_count} ({expert_count/len(scores)*100:.1f}%)")
-        print(f"  Proficient (7.0-8.9): {proficient_count} ({proficient_count/len(results)*100:.1f}%)")
-        print(f"  Intermediate (5.0-6.9): {intermediate_count} ({intermediate_count/len(results)*100:.1f})%)")
-        print(f"  Novice (<5.0): {novice_count} ({novice_count/len(results)*100:.1f}%)")
-
     return results
 
 
@@ -253,9 +228,6 @@ def main():
     parser.add_argument('--mask_dir', type=str, default=None)
     parser.add_argument('--output', type=str, default='predictions.json')
     parser.add_argument('--device', type=str, default='cuda')
-    parser.add_argument('--target_range', type=str, default='6-30',
-                       choices=['1-10', '6-30'],
-                       help='目标分数范围: 1-10(论文分数，用于对比), 6-30(JIGSAWS GRS原始分数)')
     args = parser.parse_args()
 
     # 加载配置
@@ -264,22 +236,12 @@ def main():
         import yaml
         config.update(yaml.safe_load(f))
 
-    # 设置推理目标范围（根据命令行参数或配置文件）
-    # 优先使用命令行参数，否则使用配置文件
-    if args.target_range == '1-10':
-        config['inference_target_range'] = [1.0, 10.0]
-    elif args.target_range == '6-30':
-        config['inference_target_range'] = [6.0, 30.0]
-    # 如果未指定命令行参数，使用配置文件的值（如果存在）
-    elif 'inference_target_range' not in config:
-        config['inference_target_range'] = [6.0, 30.0]  # 默认使用 JIGSAWS 原始范围
-
     print("="*60)
     print("Surgical QA 推理 (Bounded Version)")
     print("="*60)
     print(f"配置文件: {args.config}")
     print(f"检查点: {args.checkpoint}")
-    print(f"目标范围: {config['inference_target_range']}")
+    print(f"分数范围 (JIGSAWS GRS): [6.0, 30.0]")
     print("="*60)
 
     print("\n加载模型...")
@@ -289,8 +251,7 @@ def main():
     model.eval()
 
     print(f"模型已加载: {args.checkpoint}")
-    print(f"分数范围 (配置): [{model.score_min}, {model.score_max}]")
-    print(f"目标范围 (推理): {config['inference_target_range']}")
+    print(f"分数范围: [{model.score_min}, {model.score_max}]")
 
     # 单视频推理
     if args.video:
@@ -298,29 +259,14 @@ def main():
             model=model,
             video_path=args.video,
             mask_dir=args.mask_dir,
-            device=args.device,
-            target_range=tuple(config['inference_target_range'])
+            device=args.device
         )
 
         print("\n" + "="*60)
         print("推 理 结 果")
         print("="*60)
-        print(f"预测分数: {score:.2f}")
-        print(f"分数范围: {config['inference_target_range']}")
-
-        # 技能等级
-        if score >= 9.0:
-            level = "Expert (专家)"
-        elif score >= 7.0:
-            level = "Proficient (熟练)"
-        elif score >= 5.0:
-            level = "Intermediate (中级)"
-        else:
-            level = "Novice (初级)"
-
-        print(f"技能等级: {level}")
+        print(f"预测分数 (JIGSAWS GRS): {score:.2f}")
         print("="*60)
-
         return
 
     # 批量推理
@@ -338,7 +284,6 @@ def main():
             json.dump(results, f, indent=2)
 
         print(f"\n结果已保存到: {args.output}")
-
     else:
         print("错误: 必须指定 --video 或 --video_dir")
         sys.exit(1)

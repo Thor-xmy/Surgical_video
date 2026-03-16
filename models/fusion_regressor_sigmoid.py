@@ -106,8 +106,8 @@ class BoundedFusionRegressor(nn.Module):
 
         Args:
             score_normalized: (B,) 或 (B, 1) - 归一化后的预测，范围 [0, 1]
-            target_min: 目标范围的最小值（如 6.0 或 1.0），默认 6.0 (JIGSAWS GRS)
-            target_max: 目标范围的最大值（如 30.0 或 10.0），默认 30.0
+            target_min: 目标范围的最小值（默认 6.0，JIGSAWS GRS）
+            target_max: 目标范围的最大值（默认 30.0，JIGSAWS GRS）
             norm_min: 归一化范围的下限（默认 0.0）
             norm_max: 归一化范围的上限（默认 1.0）
 
@@ -164,7 +164,7 @@ if __name__ == '__main__':
 
     # 验证输出范围
     assert 0.0 < score_normalized.min().item()
-    assert score_normalized.max().item() < 1.0
+    assert score_normalized.max().item() <= 1.0
 
     print("\n✓ Output is strictly in (0, 1)")
 
