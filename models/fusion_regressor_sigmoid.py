@@ -96,34 +96,44 @@ class BoundedFusionRegressor(nn.Module):
         return score_normalized
 
     def denormalize_score(self, score_normalized,
-                        score_min=1.0,
-                        score_max=10.0,
-                        target_min=0.0,
-                        target_max=1.0):
+                        target_min=None, target_max=None,
+                        norm_min=None, norm_max=None):
         """
-        反归一化：将 [0, 1] 的预测转换回原始分数范围
+        反归一化：将归一化的分数从 [norm_min, norm_max] 转换回目标范围 [target_min, target_max]
+
+        数学公式：
+            target = (normalized - norm_min) / (norm_max - norm_min) * (target_max - target_min) + target_min
 
         Args:
             score_normalized: (B,) 或 (B, 1) - 归一化后的预测，范围 [0, 1]
-            score_min: 原始分数最小值（如 JIGSAWS GRS: 1）
-            score_max: 原始分数最大值（如 JIGSAWS GRS: 30）
-            target_min: 归一化目标最小值（应为 0）
-            target_max: 归一化目标最大值（应为 1）
+            target_min: 目标范围的最小值（如 6.0 或 1.0），默认 1.0
+            target_max: 目标范围的最大值（如 30.0 或 10.0），默认 30.0
+            norm_min: 归一化范围的下限（默认 0.0）
+            norm_max: 归一化范围的上限（默认 1.0）
 
         Returns:
-            score_original: 与输入同形状，范围 [score_min, score_max]
+            score_target: 反归一化后的分数，范围 [target_min, target_max]
         """
         # 确保 score_normalized 是一维
         if score_normalized.dim() == 2:
             score_normalized = score_normalized.squeeze(-1)
+        elif score_normalized.dim() == 0:
+            score_normalized = score_normalized.unsqueeze(0)
 
-        # 反归一化公式：(norm - target_min) / (target_max - target_min) * (max - min) + min
-        score_range = score_max - score_min
+        # 使用默认值
+        norm_min = norm_min if norm_min is not None else 0.0
+        norm_max = norm_max if norm_max is not None else 1.0
+        target_min = target_min if target_min is not None else 1.0
+        target_max = target_max if target_max is not None else 30.0
+
+        # 计算范围
+        norm_range = norm_max - norm_min
         target_range = target_max - target_min
 
-        score_original = (score_normalized - target_min) / target_range * score_range + score_min
+        # 反归一化公式：(normalized - norm_min) / norm_range * target_range + target_min
+        score_target = (score_normalized - norm_min) / norm_range * target_range + target_min
 
-        return score_original
+        return score_target
 
 
 if __name__ == '__main__':

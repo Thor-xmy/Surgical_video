@@ -7,14 +7,12 @@ Inference Script for Surgical QA Model (Bounded Version)
 修改说明：
 1. 使用 SurgicalQAModelBounded（带 Sigmoid 输出）
 2. 模型输出范围 [0, 1]，反归一化到目标范围
-3. 支持多个目标范围：论文分数 [1, 10] 或原始 GRS [1, 30]
+3. 支持多个目标范围：论文分数 [1, 10] 或原始 GRS [6, 30]
 
 Usage:
-    python inference_bounded.py \
-        --config configs/bounded.yaml \
+    python inference_bounded.py --config configs/bounded.yaml \
         --checkpoint checkpoints/best_model.pth \
-        --video /path/to/video.mp4 \
-        --mask_dir /path/to/masks
+        --video /path/to/video.mp4 --mask_dir /path/to/masks
 """
 
 import os
@@ -23,7 +21,8 @@ import torch
 import numpy as np
 import cv2
 import argparse
-from datetime import datetime
+import glob
+import json
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -31,7 +30,7 @@ from models.surgical_qa_model_bounded import SurgicalQAModelBounded, build_model
 
 
 def process_video(model, video_path, mask_dir, device='cuda',
-                  target_range=(1.0, 10.0)):
+                  target_range=(6.0, 30.0)):
     """
     处理单个视频并预测技能分数
 
@@ -91,7 +90,7 @@ def process_video(model, video_path, mask_dir, device='cuda',
     masks = None
 
     if mask_dir and os.path.exists(mask_dir):
-        # 尝试加载 npy 格式
+        # 尝试加载 NPY 格式
         mask_npy_path = os.path.join(mask_dir, f"{video_id}_masks.npy")
         if os.path.exists(mask_npy_path):
             masks = np.load(mask_npy_path)
@@ -147,30 +146,27 @@ def process_video(model, video_path, mask_dir, device='cuda',
     # 6. 反归一化分数
     print("  6. 反归一化分数...")
     if hasattr(model, 'denormalize_score'):
-        # 使用模型内置的反归一化函数
+        # 【正确逻辑】
+        # 网络输出 score_normalized 固定在 [0, 1] 之间（norm_min=0.0, norm_max=1.0）
+        # 我们要将其映射到用户期望的 target_range（如 6 到 30，或 1 到 10）
         score = model.denormalize_score(
             score_normalized,
-            score_min=model.score_min,
-            score_max=model.score_max,
-            target_min=target_range[0],
-            target_max=target_range[1]
+            target_min=target_range[0],     # 目标范围最小值（如 6.0 或 1.0）
+            target_max=target_range[1],     # 目标范围最大值（如 30.0 或 10.0）
+            norm_min=0.0,                # 归一化范围最小值（固定 0.0）
+            norm_max=1.0                  # 归一化范围最大值（固定 1.0）
         )
     else:
-        # 手动反归一化
-        target_min, target_max = target_range
-        score_normalized = score_normalized.cpu().numpy() if torch.is_tensor(score_normalized) else score_normalized
+        # 手动反归一化（备用分支）
+        score_normalized_np = score_normalized.cpu().numpy() if torch.is_tensor(score_normalized) else score_normalized
 
-        if score_normalized.ndim == 0:
-            score_normalized = float(score_normalized)
+        if np.ndim(score_normalized_np) == 0:
+            score_normalized_np = float(score_normalized_np)
 
-        # 反归一化公式: (norm - target_min) / (target_max - target_min) * (score_max - score_min) + score_min
-        # 归一化后的值：score_normalized = (original - 1) / 29 * 10
-        # 反归一化回 1-10: original = normalized * 29 + 1
-        # 所以公式简化为: original = normalized * (score_max - score_min) + score_min
-        # 但由于归一化公式可能不同，使用通用公式
-        score_range = model.score_max - model.score_min
-        target_range_diff = target_max - target_min
-        score = (score_normalized - target_min) / target_range_diff * score_range + model.score_min
+        # 正确的手动公式：(norm - 0) / 1 * (target_max - target_min) + target_min
+        # 简化后：score = norm * (target_range) + target_min
+        target_range_diff = target_range[1] - target_range[0]
+        score = score_normalized_np * target_range_diff + target_range[0]
 
     return float(score)
 
@@ -194,11 +190,10 @@ def batch_inference(model, video_dir, mask_dir, config, device='cuda'):
     print("="*60)
 
     # 设置目标范围
-    target_range = tuple(config.get('inference_target_range', [1.0, 10.0]))
+    target_range = tuple(config.get('inference_target_range', [6.0, 30.0]))
     print(f"目标分数范围: {target_range}")
 
     # 获取所有视频文件
-    import glob
     video_files = sorted(glob.glob(os.path.join(video_dir, '*.mp4')))
     print(f"找到 {len(video_files)} 个视频文件")
 
@@ -243,7 +238,7 @@ def batch_inference(model, video_dir, mask_dir, config, device='cuda'):
         print(f"\n技能等级分布:")
         print(f"  Expert (9.0+): {expert_count} ({expert_count/len(scores)*100:.1f}%)")
         print(f"  Proficient (7.0-8.9): {proficient_count} ({proficient_count/len(results)*100:.1f}%)")
-        print(f"  Intermediate (5.0-6.9): {intermediate_count} ({intermediate_count/len(results)*100:.1f}%)")
+        print(f"  Intermediate (5.0-6.9): {intermediate_count} ({intermediate_count/len(results)*100:.1f})%)")
         print(f"  Novice (<5.0): {novice_count} ({novice_count/len(results)*100:.1f}%)")
 
     return results
@@ -258,8 +253,9 @@ def main():
     parser.add_argument('--mask_dir', type=str, default=None)
     parser.add_argument('--output', type=str, default='predictions.json')
     parser.add_argument('--device', type=str, default='cuda')
-    parser.add_argument('--target_range', type=str, default='1-10',
-                       choices=['1-10', '1-30'], help='目标分数范围')
+    parser.add_argument('--target_range', type=str, default='6-30',
+                       choices=['1-10', '1-30', '6-30'],
+                       help='目标分数范围: 1-10(论文分数), 1-30(1-30范围), 6-30(JIGSAWS GRS原始分数)')
     args = parser.parse_args()
 
     # 加载配置
@@ -268,11 +264,17 @@ def main():
         import yaml
         config.update(yaml.safe_load(f))
 
-    # 设置推理目标范围
+    # 设置推理目标范围（根据命令行参数）
+    # 注意：这里尊重命令行参数，不强制覆盖配置文件
     if args.target_range == '1-10':
         config['inference_target_range'] = [1.0, 10.0]
-    else:  # '1-30'
+    elif args.target_range == '1-30':
         config['inference_target_range'] = [1.0, 30.0]
+    elif args.target_range == '6-30':
+        config['inference_target_range'] = [6.0, 30.0]
+
+    # 如果配置文件已有 inference_target_range 且用户没有覆盖，则使用配置文件的值
+    # 这样用户可以通过修改配置文件来设置默认值
 
     print("="*60)
     print("Surgical QA 推理 (Bounded Version)")
@@ -282,7 +284,6 @@ def main():
     print(f"目标范围: {config['inference_target_range']}")
     print("="*60)
 
-    # 加载模型
     print("\n加载模型...")
     model = build_model_bounded(config)
     checkpoint = torch.load(args.checkpoint, map_location='cpu')
@@ -335,7 +336,6 @@ def main():
         )
 
         # 保存结果
-        import json
         with open(args.output, 'w') as f:
             json.dump(results, f, indent=2)
 

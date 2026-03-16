@@ -29,8 +29,9 @@ target_max: 1.0         # 归一化目标最大值（用于训练）
 
 # 推理时可以选择的目标范围：
 # 选项 1: 映射到论文分数 [1, 10]
-# 选项 2: 保留原始 GRS 分数 [6, 30]
-inference_target_range: [1.0, 10.0]  # 推理时的目标范围
+# 选项 2: 保留原始 GRS 分数 [1, 30]
+# 选项 3: 保留原始 JIGSAWS GRS 分数 [6, 30]（推荐）
+inference_target_range: [6.0, 30.0]  # 推理时的目标范围（默认6-30）
 
 # 归一化公式：
 #   normalized = (score - score_min) / (score_max - score_min) * (target_max - target_min) + target_min

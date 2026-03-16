@@ -186,46 +186,62 @@ class SurgicalQAModelBounded(nn.Module):
             return score_normalized, mask_loss
 
     def denormalize_score(self, score_normalized, target_min=None, target_max=None,
-                        score_min=None, score_max=None):
+                        norm_min=None, norm_max=None):
         """
-        反归一化：将归一化的分数 [0, 1] 转换回目标分数范围
+        反归一化：将归一化的分数从 [norm_min, norm_max] 转换回目标范围 [target_min, target_max]
+
+        标准使用场景：
+        1. 训练时原始分数 [6, 30] → 归一化到 [0, 1]
+        2. 网络输出 [0, 1] → 反归一化回 [6, 30]（原始范围）
+        3. 网络输出 [0, 1] → 反归一化到 [1, 10]（论文分数）
+
+        数学公式：
+            target = (normalized - norm_min) / (norm_max - norm_min) * (target_max - target_min) + target_min
 
         Args:
-            score_normalized: (B,) or (B, 1) - 归一化后的预测分数，范围 [0, 1]
-            target_min: 归一化目标最小值（默认 0.0）
-            target_max: 归一化目标最大值（默认 1.0）
-            score_min: 原始分数最小值（默认 self.score_min）
-            score_max: 原始分数最大值（默认 self.score_max）
+            score_normalized: (B,) or (B, 1) - 归一化后的预测分数
+            target_min: 目标范围的最小值（如 6.0 或 1.0），默认使用 self.score_min
+            target_max: 目标范围的最大值（如 30.0 或 10.0），默认使用 self.score_max
+            norm_min: 归一化范围的下限（通常是 0.0），默认 0.0
+            norm_max: 归一化范围的上限（通常是 1.0），默认 1.0
 
         Returns:
-            score: 反归一化后的分数，在 [score_min, score_max] 或自定义范围
+            score_target: 反归一化后的分数，范围 [target_min, target_max]
 
-        Note:
-            - 如果指定 target_min/target_max，则从归一化范围转换到自定义范围
-            - 支持灵活的分数映射：训练时归一化到 [0,1]，推理时可映射到 [1,10] 或 [6,30]
+        Examples:
+            # 将 [0,1] 映射回原始范围 [6,30]
+            score_6to30 = model.denormalize_score(score_norm,
+                                              target_min=6.0, target_max=30.0)
+
+            # 将 [0,1] 映射到论文范围 [1,10]
+            score_1to10 = model.denormalize_score(score_norm,
+                                              target_min=1.0, target_max=10.0)
         """
+        # 处理输入维度
         if score_normalized.dim() == 2:
             score_normalized = score_normalized.squeeze(-1)
         elif score_normalized.dim() == 0:
             score_normalized = score_normalized.unsqueeze(0)
 
         # 使用传入参数或默认值
-        target_min = target_min if target_min is not None else 0.0
-        target_max = target_max if target_max is not None else 1.0
-        score_min = score_min if score_min is not None else self.score_min
-        score_max = score_max if score_max is not None else self.score_max
+        norm_min = norm_min if norm_min is not None else 0.0
+        norm_max = norm_max if norm_max is not None else 1.0
+        target_min = target_min if target_min is not None else self.score_min
+        target_max = target_max if target_max is not None else self.score_max
 
-        score_range = score_max - score_min
+        # 计算范围
+        norm_range = norm_max - norm_min
         target_range = target_max - target_min
 
-        # 反归一化公式：(norm - target_min) / target_range * score_range + score_min
-        # 如果 target_range=0（防止除零），直接返回 score_min
-        if target_range == 0:
-            score = torch.full_like(score_normalized, score_min)
+        # 反归一化公式
+        # target = (normalized - norm_min) / norm_range * target_range + target_min
+        if norm_range == 0:
+            # 防止除零
+            score_target = torch.full_like(score_normalized, target_min)
         else:
-            score = (score_normalized - target_min) / target_range * score_range + score_min
+            score_target = (score_normalized - norm_min) / norm_range * target_range + target_min
 
-        return score
+        return score_target
 
     def compute_loss(self, score_pred, score_gt, mask_loss=None, lambda_mask=0.1):
         """
