@@ -21,7 +21,7 @@ from typing import List, Dict, Tuple, Optional
 import random
 
 # 复制原始数据加载器的所有代码
-from data_loader import SurgicalVideoDataset
+from .data_loader import SurgicalVideoDataset
 
 
 class SurgicalVideoDatasetNormalized(SurgicalVideoDataset):
@@ -53,7 +53,6 @@ class SurgicalVideoDatasetNormalized(SurgicalVideoDataset):
                  score_max=30.0,   # Original score maximum (GRS: 30)
                  target_min=0.0,    # Normalized target minimum
                  target_max=1.0):   # Normalized target maximum
-                 ):
         """
         Args:
             data_root: Root directory of dataset
@@ -112,7 +111,7 @@ class SurgicalVideoDatasetNormalized(SurgicalVideoDataset):
         # 预处理 clips 中的分数
         if self.cache_clips and self.clips is not None:
             print(f"\n归一化分数: [{score_min}, {score_max}] → [{target_min}, {target_max}]")
-            print(f"  归一化公式: normalized = (grs - {score_min}) / {score_range} * {target_range} + {target_min}")
+            print(f"  归一化公式: normalized = (grs - {score_min}) / {self.score_range} * {self.target_range} + {target_min}")
             self._normalize_clips()
 
     def _normalize_clips(self):

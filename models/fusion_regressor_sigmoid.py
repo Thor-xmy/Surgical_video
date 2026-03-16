@@ -28,7 +28,7 @@ class BoundedFusionRegressor(nn.Module):
     - 推理：反归一化到 [1, 10] 或 [1, 30]
     """
     def __init__(self, static_dim, dynamic_dim,
-                 hidden_dims=[102440, 512, 256, 128]):
+                 hidden_dims=[1024, 512, 256, 128]):
         """
         Args:
             static_dim: 静态特征维度
