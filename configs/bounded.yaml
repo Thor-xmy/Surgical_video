@@ -13,7 +13,7 @@
 # DATA SETTINGS
 # ============================================================================
 data_root: /root/autodl-tmp/SV_test/data  # JIGSAWS 数据集根目录
-batch_size: 4
+batch_size: 2
 num_workers: 4
 split_ratio: [0.7, 0.15, 0.15]  # 新增：70%训练，15%验证，15%测试
 split_seed: 42
@@ -52,7 +52,7 @@ dynamic_dim: 1024      # I3D 特征维度（标准 Mixed_5c 输出）
 freeze_backbone: false   # 冻结主干网络
 use_pretrained: true   # 使用 ImageNet 预训练权重
 #use_mask_loss: true   # 使用掩膜监督损失
-use_mask: false
+use_mask: true
 # Backbone checkpoints
 resnet_path: null       # ResNet 检查点路径
 i3d_path: /root/autodl-tmp/PyTorchConv3D/checkpoints/I3D/rgb_imagenet.pth         # I3D 检查点路径
@@ -104,7 +104,7 @@ min_delta: 0.001      # 最小改进阈值
 # OUTPUT AND LOGGING
 # ============================================================================
 output_dir: ./output_muticlip_bounded
-print_freq: 10        # 每 N 步打印一次
+print_freq: 2        # 每 N 步打印一次
 save_freq: 1          # 每 N 轮保存一次检查点
 log_freq: 10          # 每 N 步记录一次 Tensor
 

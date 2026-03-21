@@ -289,8 +289,8 @@ class DynamicFeatureMultiClip(nn.Module):
                 mask_clip = mask_clips[idx]  # (B, clip_length, H, W)
 
                 # Step 1: Temporal smoothing
-                mask_smoothed = self._temporal_smoothing(mask_clip, target_T=feat.size(2))
-
+                #mask_smoothed = self._temporal_smoothing(mask_clip, target_T=feat.size(2))
+                mask_smoothed = mask_clip
                 # Step 2: Spatial alignment with I3D feature map
                 # I3D features: (B, C, T', H', W')
                 # Masks: (B, T_mask, H_mask, W_mask)

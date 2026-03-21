@@ -23,7 +23,7 @@ from torch.utils.tensorboard import SummaryWriter
 import random
 import numpy as np
 from datetime import datetime
-
+from torch.cuda.amp import autocast, GradScaler
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from models.surgical_qa_model_multiclip_bounded import SurgicalQAModelMultiClipBounded, build_model_multiclip_bounded
@@ -73,7 +73,7 @@ def load_config(config_path, args):
 
     config_updates = {
         'data_root': args.data_root,
-        'batch_size': args.batch_size,
+        #'batch_size': args.batch_size,
         'num_workers': args.num_workers,
         'learning_rate': args.learning_rate,
         'weight_decay': args.weight_decay,
@@ -82,13 +82,13 @@ def load_config(config_path, args):
         'clip_length': args.clip_length,
         'clip_stride': args.clip_stride,
         'max_clips': args.max_clips,
-        'freeze_backbone': args.freeze_backbone,
+        #'freeze_backbone': args.freeze_backbone,
         'use_mixed_conv': args.use_mixed_conv,
         'score_min': args.score_min,
         'score_max': args.score_max,
         'use_pretrained': args.pretrained,
         'epochs': args.epochs,
-        'print_freq': args.print_freq,
+        #'print_freq': args.print_freq,
         'save_freq': args.save_freq
     }
 
@@ -144,7 +144,7 @@ def build_optimizer(model, config):
 
     return optimizer
 
-def train_epoch(model, dataloader, optimizer, device, epoch, config):
+def train_epoch(model, dataloader, optimizer, device, epoch, config, scaler=None):
     model.train()
 
     loss_meter = AverageMeter()
@@ -162,12 +162,30 @@ def train_epoch(model, dataloader, optimizer, device, epoch, config):
 
         batch_size = video.size(0)
 
-        score_pred = model(video, masks)
-        loss, loss_dict = model.compute_loss(score_pred, score_gt)
+        #score_pred = model(video, masks)
+        #loss, loss_dict = model.compute_loss(score_pred, score_gt)
 
+        #optimizer.zero_grad()
+        #loss.backward()
+        #optimizer.step()
         optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        
+        if scaler is not None:
+            # 🌟 开启混合精度：让模型在 float16 (半精度) 下跑，显存砍半！
+            with autocast():
+                score_pred = model(video, masks)
+                loss, loss_dict = model.compute_loss(score_pred, score_gt)
+            
+            # 混合精度专用的反向传播
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            # 正常的 float32 全精度跑法
+            score_pred = model(video, masks)
+            loss, loss_dict = model.compute_loss(score_pred, score_gt)
+            loss.backward()
+            optimizer.step()
 
         loss_meter.update(loss.item(), batch_size)
         pred_scores.extend(score_pred.detach().squeeze(-1).cpu().numpy())
@@ -276,7 +294,7 @@ def main():
 
     if args.resume is not None:
         print(f"Loading checkpoint from {args.resume}")
-        checkpoint = torch.load(args.resume, map_location=device)
+        checkpoint = torch.load(args.resume, map_location=device, weights_only=False)  ################################################################
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         start_epoch = checkpoint['epoch'] + 1
@@ -291,7 +309,7 @@ def main():
         data_root=config['data_root'],
         batch_size=config['batch_size'],
         num_workers=config['num_workers'],
-        spatial_size=224,
+        spatial_size=config.get('spatial_size', 112),
         clip_length=config['clip_length'],
         clip_stride=config['clip_stride'],
         score_min=config['score_min'],
@@ -310,7 +328,7 @@ def main():
         data_root=config['data_root'],
         batch_size=config['batch_size'],
         num_workers=config['num_workers'],
-        spatial_size=224,
+        spatial_size=config.get('spatial_size', 112),
         clip_length=config['clip_length'],
         clip_stride=config['clip_stride'],
         score_min=config['score_min'],
@@ -324,13 +342,15 @@ def main():
         is_train=False,
         use_mask=use_mask  # 🌟 传入开关
     )
-
+    use_amp = config.get('use_amp', False)
+    scaler = GradScaler() if use_amp else None
+    print(f"AMP (Mixed Precision) enabled: {use_amp}")
     for epoch in range(start_epoch, config['epochs']):
         print(f"\nEpoch {epoch + 1}/{config['epochs']}")
         print("-" * 70)
 
         train_loss, train_metrics = train_epoch(
-            model, train_loader, optimizer, device, epoch, config
+            model, train_loader, optimizer, device, epoch, config, scaler
         )
 
         val_loss, val_metrics = validate(
