@@ -328,8 +328,8 @@ class VideoLevelDatasetFrames(Dataset):
                 m = cv2.resize(m, (video_W, video_H), interpolation=cv2.INTER_NEAREST)
 
             # Normalize to [0, 1]
-            m = m / 255.0
-
+            #m = m / 255.0
+            m = (m > 0).astype(np.float32)
             processed_masks.append(m)
 
         # Stack masks: (T, H, W)

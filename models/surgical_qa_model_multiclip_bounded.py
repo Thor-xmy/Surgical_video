@@ -118,7 +118,9 @@ class SurgicalQAModelMultiClipBounded(nn.Module):
             use_mixed_conv=config.get('use_mixed_conv', True),
             clip_length=self.clip_length,
             clip_stride=self.clip_stride,
-            max_clips=self.max_clips
+            max_clips=self.max_clips,
+            # 🌟 新增这一行：将开关透传给动态特征提取器
+            use_early_fusion=config.get('use_early_fusion', False)
         )
 
         # 3. Fusion and Regression Module

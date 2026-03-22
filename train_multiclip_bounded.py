@@ -60,7 +60,7 @@ def parse_args():
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--print_freq', type=int, default=10)
-    parser.add_argument('--save_freq', type=int, default=5)
+    parser.add_argument('--save_freq', type=int, default=20)
     return parser.parse_args()
 
 

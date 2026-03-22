@@ -53,6 +53,7 @@ freeze_backbone: false   # 冻结主干网络
 use_pretrained: true   # 使用 ImageNet 预训练权重
 #use_mask_loss: true   # 使用掩膜监督损失
 use_mask: true
+use_early_fusion: true  
 # Backbone checkpoints
 resnet_path: null       # ResNet 检查点路径
 i3d_path: /root/autodl-tmp/PyTorchConv3D/checkpoints/I3D/rgb_imagenet.pth         # I3D 检查点路径

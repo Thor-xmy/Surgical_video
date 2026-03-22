@@ -20,7 +20,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-
+import random
 from .dynamic_feature_extractor import (
     InceptionI3D, MixedConv3D, MaxPool3dSamePadding
 )
@@ -48,7 +48,8 @@ class DynamicFeatureMultiClip(nn.Module):
                  use_mixed_conv=True,
                  clip_length=16,
                  clip_stride=10,
-                 max_clips=None):
+                 max_clips=None,
+                 use_early_fusion=False):
         """
         Args:
             i3d_path: Path to I3D checkpoint
@@ -67,7 +68,7 @@ class DynamicFeatureMultiClip(nn.Module):
         self.clip_length = clip_length
         self.clip_stride = clip_stride
         self.max_clips = max_clips
-
+        self.use_early_fusion = use_early_fusion  # 🌟 保存为类的属性
         # Standard I3D backbone
         self.i3d = InceptionI3D(in_channels=3, num_classes=400)
 
@@ -277,6 +278,7 @@ class DynamicFeatureMultiClip(nn.Module):
         features_list = []
 
         for idx, clip in enumerate(clips):
+            '''
             # Extract I3D features: (B, 1024, T', H', W')
             feat = self.feature_extractor(clip)
 
@@ -310,7 +312,58 @@ class DynamicFeatureMultiClip(nn.Module):
                 # This is paper1231 Eq.11: F_dy(X_i) = F_clip(X_i) ⊙ (A + I)
                 attention_map = masks_aligned.squeeze(1)  # (B, T', H', W')
                 feat = feat * (attention_map.unsqueeze(1) + 1.0)  # (B, C, T', H', W')
+            '''
+            # ==========================================
+            # 🌟 策略 A：早期融合 (Early Fusion)
+            # 在进入网络前，直接在像素层面屏蔽背景
+            # ==========================================
+            if mask_clips is not None and self.use_early_fusion:
+                
+                
+                print(f"[Debug] 乘法前 Clip 像素总和: {clip.abs().sum().item():.2f}")
+                mask_clip = mask_clips[idx].unsqueeze(1)  # (B, 1, 16, H, W)
+                #soft_mask = mask_clip * 0.8 + 0.2    #############################################################
+                clip = clip * mask_clip  # 背景像素归零
+                print(f"[Debug] 乘法后 Clip 像素总和: {clip.abs().sum().item():.2f}")
+            # 无论哪种融合，都把 clip 送进 I3D 提取特征
+            feat = self.feature_extractor(clip)
 
+            if self.use_mixed_conv:
+                feat = self.mixed_conv(feat) 
+
+            # ==========================================
+            # 🌟 策略 B：晚期融合 (Late Fusion)
+            # 网络提取特征后，在特征图上做 Attention
+            # ==========================================
+            if mask_clips is not None and not self.use_early_fusion:
+                mask_clip = mask_clips[idx]  
+                mask_smoothed = mask_clip # 取消平滑操作
+
+                _, C_feat, T_feat, H_feat, W_feat = feat.shape
+                masks_5d = mask_smoothed.unsqueeze(1) 
+                
+                masks_aligned = F.interpolate(
+                    masks_5d,
+                    size=(T_feat, H_feat, W_feat),
+                    mode='trilinear',
+                    align_corners=False
+                ) 
+                attention_map = masks_aligned.squeeze(1) 
+                debug_flag = (random.random() < 0.05)
+                if debug_flag:
+                    print(f"\n👉 [晚期融合探头]")
+                    print(f"  原 Mask    : min={mask_clip.min().item():.2f}, max={mask_clip.max().item():.2f}")
+                    print(f"  Attention : min={attention_map.min().item():.4f}, max={attention_map.max().item():.4f}")
+                    feat_sum_before = feat.abs().sum().item()
+                feat = feat * (attention_map.unsqueeze(1) + 1.0) 
+
+                if debug_flag:
+                    feat_sum_after = feat.abs().sum().item()
+                    ratio = feat_sum_after / (feat_sum_before + 1e-8)
+                    print(f"  特征总和   : {feat_sum_before:.2f} 放大至 {feat_sum_after:.2f} (约 {ratio:.3f} 倍)")
+            # ==========================================
+
+            # 后续正常的池化操作保持不变
             # Pool to get single feature vector per clip
             feat = F.adaptive_avg_pool3d(feat, (1, 1, 1))  # (B, 1024, 1, 1, 1)
             feat = feat.flatten(1)  # (B, 1024)
