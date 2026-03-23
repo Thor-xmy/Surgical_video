@@ -323,7 +323,8 @@ class DynamicFeatureMultiClip(nn.Module):
                 print(f"[Debug] 乘法前 Clip 像素总和: {clip.abs().sum().item():.2f}")
                 mask_clip = mask_clips[idx].unsqueeze(1)  # (B, 1, 16, H, W)
                 #soft_mask = mask_clip * 0.8 + 0.2    #############################################################
-                clip = clip * mask_clip  # 背景像素归零
+                #clip = clip * mask_clip  # 背景像素归零
+                clip = clip * mask_clip + (-1.0) * (1.0 - mask_clip)
                 print(f"[Debug] 乘法后 Clip 像素总和: {clip.abs().sum().item():.2f}")
             # 无论哪种融合，都把 clip 送进 I3D 提取特征
             feat = self.feature_extractor(clip)

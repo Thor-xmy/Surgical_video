@@ -13,7 +13,7 @@
 # DATA SETTINGS
 # ============================================================================
 data_root: /root/autodl-tmp/SV_test/data  # JIGSAWS 数据集根目录
-batch_size: 6
+batch_size: 2
 num_workers: 4
 split_ratio: [0.7, 0.15, 0.15]  # 新增：70%训练，15%验证，15%测试
 split_seed: 42
@@ -79,7 +79,7 @@ lr_milestones: [30, 60, 90]
 lr_gamma: 0.1
 
 # 差分学习率（论文要求）
-backbone_lr: 0.0003     # I3D 主干网络学习率
+backbone_lr: 0.0001     # I3D 主干网络学习率
 static_lr: 0.001       # ResNet + 回归器学习率
 
 
@@ -118,5 +118,5 @@ seed: 42              # 随机种子
 
 
 
-expected_clips: 20    # 🌟 告诉全连接层：请给我建一个容量为 72 个 Clip 的打分器！
-max_clips: 20         # 🌟 告诉底层 I3D/ResNet：切到 72 个就立刻停手，别再往下切了，省点显存！
+#expected_clips: 71    # 🌟 告诉全连接层：请给我建一个容量为 72 个 Clip 的打分器！
+max_clips: 71         # 🌟 告诉底层 I3D/ResNet：切到 72 个就立刻停手，别再往下切了，省点显存！

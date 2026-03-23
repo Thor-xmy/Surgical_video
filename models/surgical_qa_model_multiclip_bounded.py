@@ -128,7 +128,8 @@ class SurgicalQAModelMultiClipBounded(nn.Module):
         # This ensures optimizer can find all parameters from the start
         self.total_clip_dim = self.static_dim + self.dynamic_dim
         self.fusion_regressor = BoundedFusionRegressorMultiClip(
-            input_dim=self.expected_clips * self.total_clip_dim,
+            #input_dim=self.expected_clips * self.total_clip_dim,
+            input_dim=self.total_clip_dim,
             hidden_dims=self.config.get('regressor_hidden_dims', [1024, 512, 256, 128])
         )
 
@@ -201,7 +202,7 @@ class SurgicalQAModelMultiClipBounded(nn.Module):
         # 3. Per-clip fusion: [Static_clip, Dynamic_clip] -> Fused_clip
         fused_per_clip = self._per_clip_fusion(static_per_clip, dynamic_per_clip)
         # fused_per_clip: (B, num_clips, 512 + 1024) = (B, num_clips, 1536)
-
+        '''
         # 4. Temporal concatenation: Flatten to preserve temporal order
         # (B, num_clips, 1536) -> (B, num_clips * 1536)
         temporal_features = fused_per_clip.reshape(B, -1)
@@ -209,7 +210,6 @@ class SurgicalQAModelMultiClipBounded(nn.Module):
         # 5. Handle case where actual num_clips differs from expected_clips
         actual_input_dim = temporal_features.shape[1]
         expected_input_dim = self.expected_clips * self.total_clip_dim
-
         if actual_input_dim != expected_input_dim:
             # Need to adjust features to match expected dimension
             if actual_input_dim < expected_input_dim:
@@ -219,6 +219,12 @@ class SurgicalQAModelMultiClipBounded(nn.Module):
             else:
                 # Truncate
                 temporal_features = temporal_features[:, :expected_input_dim]
+        '''
+        # 4 & 5. 【修改点】：时序平均池化 (Temporal Mean Pooling)
+        # 对 num_clips 维度（维度索引为 1）求平均值
+        # 无论视频被切成了 5 个 clip 还是 71 个 clip，这里都会被安全地聚合成 (B, 1536)
+        temporal_features = fused_per_clip.mean(dim=1) 
+        # temporal_features: (B, 1536)
 
         # 6. Regress to score (using fused temporal features directly)
         score_normalized = self.fusion_regressor(temporal_features)

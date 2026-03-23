@@ -120,6 +120,7 @@ def setup_device(gpu_id):
     return device
 
 # 这里的双学习率代码你已经加得很完美了，完全保留
+'''
 def build_optimizer(model, config):
     base_lr = config.get('learning_rate', 1e-4)
     weight_decay = config.get('weight_decay', 1e-5)
@@ -143,6 +144,60 @@ def build_optimizer(model, config):
     ], weight_decay=weight_decay)
 
     return optimizer
+'''
+def build_optimizer(model, config):
+    # 成功从 yaml 读取配置
+    backbone_lr = config.get('backbone_lr', 3e-4)
+    static_lr = config.get('static_lr', 1e-3)
+    weight_decay = config.get('weight_decay', 1e-5)
+    opt_type = config.get('optimizer', 'adam').lower()
+    momentum = config.get('momentum', 0.9)
+
+    backbone_params = []
+    other_params = []
+
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+        if 'dynamic_extractor' in name:
+            backbone_params.append(param)
+        else:
+            other_params.append(param)
+
+    # 按照不同模块分配读取到的学习率
+    param_groups = [
+        {'params': backbone_params, 'lr': backbone_lr},
+        {'params': other_params, 'lr': static_lr}
+    ]
+
+    # 根据配置选择优化器
+    if opt_type == 'adam':
+        optimizer = optim.Adam(param_groups, weight_decay=weight_decay)
+    elif opt_type == 'sgd':
+        optimizer = optim.SGD(param_groups, momentum=momentum, weight_decay=weight_decay)
+    elif opt_type == 'adamw':
+        optimizer = optim.AdamW(param_groups, weight_decay=weight_decay)
+    else:
+        optimizer = optim.Adam(param_groups, weight_decay=weight_decay)
+        
+    return optimizer
+
+    #==============================================================
+from torch.optim.lr_scheduler import CosineAnnealingLR, MultiStepLR
+
+def build_scheduler(optimizer, config):
+    sched_type = config.get('lr_scheduler', 'cosine')
+    if sched_type == 'cosine':
+        return CosineAnnealingLR(optimizer, T_max=config.get('epochs', 100))
+    elif sched_type == 'step':
+        return MultiStepLR(optimizer, 
+                           milestones=config.get('lr_milestones', [30, 60, 90]), 
+                           gamma=config.get('lr_gamma', 0.1))
+    return None
+#===============================================================================
+
+
+
 
 def train_epoch(model, dataloader, optimizer, device, epoch, config, scaler=None):
     model.train()
@@ -288,7 +343,7 @@ def main():
     model.count_parameters()
 
     optimizer = build_optimizer(model, config)
-
+    scheduler = build_scheduler(optimizer, config)  ############################################################
     start_epoch = 0
     best_metric = -float('inf')
 
@@ -389,6 +444,8 @@ def main():
                 model, optimizer, epoch + 1, val_loss, val_metrics,
                 log_dir, 'best_model.pth'
             )
+        if scheduler is not None:  ####################################################################
+            scheduler.step()
 
     print("\nTraining completed!")
     print(f"Best Spearman: {best_metric:.4f}")
