@@ -56,6 +56,8 @@ def parse_args():
     parser.add_argument('--score_max', type=float, default=None)
     
     parser.add_argument('--resume', type=str, default=None)
+    # 🌟 新增：指定单独跑哪一折（0, 1, 2, 3）。如果不指定(None)，就跑完整的多折循环
+    parser.add_argument('--target_fold', type=int, default=None, help='Specify a single fold to train/resume')
     parser.add_argument('--pretrained', action='store_true', default=True)
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--seed', type=int, default=42)
@@ -500,9 +502,18 @@ def main():
     # 🌟 设定 K折数量（建议写在 config 里，默认用 4 折）
     num_folds = config.get('num_folds', 4)
     fold_results_spearman = []
-
+    # ================== 修改点：灵活的 K 折循环控制器 ==================
+    if args.target_fold is not None:
+        if args.target_fold < 0 or args.target_fold >= num_folds:
+            raise ValueError(f"target_fold 必须在 0 到 {num_folds-1} 之间！")
+        folds_to_run = [args.target_fold]
+        print(f"\n🎯 模式：单独训练/续训指定折 FOLD {args.target_fold}")
+    else:
+        folds_to_run = range(num_folds)
+        print(f"\n🎯 模式：完整运行 {num_folds}-Fold 交叉验证")
+    # ===================================================================
     # 🌟🌟🌟 最外层的 K折循环开始
-    for current_fold in range(num_folds):
+    for current_fold in folds_to_run:
         print("\n" + "★"*70)
         print(f"★ 开始训练 FOLD {current_fold + 1} / {num_folds}")
         print("★"*70)
@@ -514,6 +525,26 @@ def main():
         
         # 为当前折创建专属的 Tensorboard 日志目录
         fold_writer = SummaryWriter(os.path.join(log_dir, f'fold_{current_fold}'))
+
+        # ================== 🌟 新增：断点续训逻辑 ==================
+        start_epoch = 0
+        best_val_spearman = -float('inf')
+        best_test_spearman_for_this_fold = 0.0
+
+        if args.resume is not None:
+            print(f"🔄 正在从 {args.resume} 加载断点权重...")
+            # 加载权重
+            checkpoint = torch.load(args.resume, map_location=device, weights_only=False)
+            model.load_state_dict(checkpoint['model_state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            
+            # 恢复 epoch 数和历史最佳成绩
+            start_epoch = checkpoint['epoch']  # 如果存的是 epoch 10，这里 start_epoch 就是 10（从第11轮开始）
+            if 'metrics' in checkpoint and 'spearman' in checkpoint['metrics']:
+                best_val_spearman = checkpoint['metrics']['spearman']
+            
+            print(f"✅ 成功恢复！将从 Epoch {start_epoch} 继续训练 Fold {current_fold}。历史最佳 Val Spearman: {best_val_spearman:.4f}")
+        # ==========================================================
 
         # 2. 获取当前折的数据集
         train_loader = create_dataloader_with_split(
@@ -571,7 +602,7 @@ def main():
         best_test_spearman_for_this_fold = 0.0
 
         # 3. 正常的 Epoch 训练循环
-        for epoch in range(config['epochs']):
+        for epoch in range(start_epoch, config['epochs']):
             train_loss, train_metrics = train_epoch(model, train_loader, optimizer, device, epoch, config, scaler)
             val_loss, val_metrics = validate(model, val_loader, device, config)
 
