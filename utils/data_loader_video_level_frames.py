@@ -81,6 +81,8 @@ class VideoLevelDatasetFrames(Dataset):
                  score_max=30.0,                        # Original score maximum
                  target_min=0.0,                        # Normalized target minimum
                  target_max=1.0,                        # Normalized target maximum
+                 num_folds=None,
+                 current_fold=0,
                  is_train=True):
         """
         Args:
@@ -114,7 +116,8 @@ class VideoLevelDatasetFrames(Dataset):
         self.val_ratio = val_ratio
         self.test_ratio = test_ratio
         self.split_seed = split_seed
-
+        self.num_folds = num_folds         # 👈 新增保存
+        self.current_fold = current_fold   # 👈 新增保存
         self.spatial_size = (spatial_size, spatial_size) if isinstance(spatial_size, int) else spatial_size
         self.normalize = normalize
         self.use_mask = use_mask
@@ -184,7 +187,7 @@ class VideoLevelDatasetFrames(Dataset):
         print(f"Applied normalization (lowercase, _->-): Hei-Chole10_Calot -> hei-chole10-calot")
 
         return annotations_normalized
-
+    '''
     def _split_data(self):
         """Split data into train/val/test subsets."""
         random.seed(self.split_seed)
@@ -218,6 +221,54 @@ class VideoLevelDatasetFrames(Dataset):
         else:
             print(f"Warning: Unknown subset '{self.subset}', using all videos")
             return shuffled_ids
+    '''
+    def _split_data(self):
+        """Split data into train/val/test subsets or K-Folds."""
+        random.seed(self.split_seed)
+
+        # Shuffle for split
+        shuffled_ids = self.all_video_ids.copy()
+        random.shuffle(shuffled_ids)
+
+        # 🌟 新增：K折交叉验证逻辑
+        if hasattr(self, 'num_folds') and self.num_folds is not None:
+            n_total = len(shuffled_ids)
+            fold_size = int(np.ceil(n_total / self.num_folds))
+            
+            test_start = self.current_fold * fold_size
+            test_end = min(test_start + fold_size, n_total)
+            
+            test_ids = shuffled_ids[test_start:test_end]
+            remaining_ids = [vid for vid in shuffled_ids if vid not in test_ids]
+            
+            # 从剩余的样本中划出 15% 做验证集，其余做训练集
+            val_size = max(1, int(len(remaining_ids) * 0.15))
+            val_ids = remaining_ids[:val_size]
+            train_ids = remaining_ids[val_size:]
+            
+            print(f"K-Fold {self.current_fold+1}/{self.num_folds} Data split:")
+            print(f"  Train: {len(train_ids)} videos")
+            print(f"  Val:   {len(val_ids)} videos")
+            print(f"  Test:  {len(test_ids)} videos")
+
+            if self.subset == 'train': return train_ids
+            elif self.subset == 'val': return val_ids
+            elif self.subset == 'test': return test_ids
+
+        # 🌟 原有的简单划分逻辑保持不变
+        n_total = len(shuffled_ids)
+        n_train = int(n_total * self.train_ratio)
+        n_val = int(n_total * self.val_ratio)
+
+        train_ids = shuffled_ids[:n_train]
+        val_ids = shuffled_ids[n_train:n_train+n_val]
+        test_ids = shuffled_ids[n_train+n_val:]
+
+        if self.subset == 'train': return train_ids
+        elif self.subset == 'val': return val_ids
+        elif self.subset == 'test': return test_ids
+
+
 
     def _load_video_frames(self, video_id):
         """Load video frames from directory."""
@@ -423,6 +474,8 @@ def create_dataloader_with_split(data_root,
                               val_ratio=0.15,
                               test_ratio=0.15,
                               split_seed=42,
+                              num_folds=None,    # 👈 1. 接收参数
+                              current_fold=0,    # 👈 2. 接收参数
                               is_train=True,
                               **kwargs):
     """
@@ -457,6 +510,8 @@ def create_dataloader_with_split(data_root,
         val_ratio=val_ratio,
         test_ratio=test_ratio,
         split_seed=split_seed,
+        num_folds=num_folds,          # 👈 3. 传给 Dataset
+        current_fold=current_fold,    # 👈 4. 传给 Dataset
         spatial_size=spatial_size,
         is_train=is_train,
         **kwargs

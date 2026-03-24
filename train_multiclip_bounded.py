@@ -37,7 +37,7 @@ def parse_args():
     parser.add_argument('--config', type=str, default='configs/bounded.yaml')
     parser.add_argument('--data_root', type=str, default=None, help='Root directory of dataset')
     parser.add_argument('--output_dir', type=str, default='output_multiclip_bounded')
-    parser.add_argument('--epochs', type=int, default=100)
+    parser.add_argument('--epochs', type=int, default=None)
     parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--num_workers', type=int, default=4)
     parser.add_argument('--learning_rate', type=float, default=1e-4)
@@ -59,8 +59,8 @@ def parse_args():
     parser.add_argument('--pretrained', action='store_true', default=True)
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument('--print_freq', type=int, default=10)
-    parser.add_argument('--save_freq', type=int, default=20)
+    parser.add_argument('--print_freq', type=int, default=None)
+    parser.add_argument('--save_freq', type=int, default=None)
     return parser.parse_args()
 
 
@@ -329,7 +329,7 @@ def save_checkpoint(model, optimizer, epoch, loss, metrics, output_dir, filename
     torch.save(checkpoint, checkpoint_path)
     print(f"Saved checkpoint to {checkpoint_path}")
 
-
+'''
 def main():
     args = parse_args()
     config = load_config(args.config, args)
@@ -471,7 +471,158 @@ def main():
     print("\nTraining completed!")
     print(f"Best Spearman: {best_metric:.4f}")
     writer.close()
+'''
 
+def main():
+    args = parse_args()
+    config = load_config(args.config, args)
+
+    setup_seed(args.seed)
+    device = setup_device(args.gpu)
+
+    os.makedirs(args.output_dir, exist_ok=True)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    log_dir = os.path.join(args.output_dir, f'run_{timestamp}')
+    os.makedirs(log_dir, exist_ok=True)
+
+    config_path = os.path.join(log_dir, 'config.yaml')
+    with open(config_path, 'w') as f:
+        yaml.dump(config, f)
+
+    print("\n" + "="*70)
+    print("Multi-Clip Bounded Surgical QA Model - K-Fold Cross Validation")
+    print("="*70)
+
+    use_mask = config.get('use_mask', True)
+    use_amp = config.get('use_amp', False)
+    scaler = GradScaler() if use_amp else None
+    
+    # 🌟 设定 K折数量（建议写在 config 里，默认用 4 折）
+    num_folds = config.get('num_folds', 4)
+    fold_results_spearman = []
+
+    # 🌟🌟🌟 最外层的 K折循环开始
+    for current_fold in range(num_folds):
+        print("\n" + "★"*70)
+        print(f"★ 开始训练 FOLD {current_fold + 1} / {num_folds}")
+        print("★"*70)
+
+        # 1. 每一折必须重新初始化一个全新的模型！绝对不能让模型携带上一折的记忆！
+        model = SurgicalQAModelMultiClipBounded(config).to(device)
+        optimizer = build_optimizer(model, config)
+        scheduler = build_scheduler(optimizer, config)
+        
+        # 为当前折创建专属的 Tensorboard 日志目录
+        fold_writer = SummaryWriter(os.path.join(log_dir, f'fold_{current_fold}'))
+
+        # 2. 获取当前折的数据集
+        train_loader = create_dataloader_with_split(
+            data_root=config['data_root'],
+            batch_size=config['batch_size'],
+            num_workers=config['num_workers'],
+            spatial_size=config.get('spatial_size', 112),
+            clip_length=config['clip_length'],
+            clip_stride=config['clip_stride'],
+            score_min=config['score_min'],
+            score_max=config['score_max'],
+            subset='train',
+            num_folds=num_folds,          # 👈 传入折数
+            current_fold=current_fold,    # 👈 传入当前折的索引
+            split_seed=config.get('split_seed', 42),
+            is_train=True,
+            use_mask=use_mask
+        )
+
+        val_loader = create_dataloader_with_split(
+            data_root=config['data_root'],
+            batch_size=config['batch_size'],
+            num_workers=config['num_workers'],
+            spatial_size=config.get('spatial_size', 112),
+            clip_length=config['clip_length'],
+            clip_stride=config['clip_stride'],
+            score_min=config['score_min'],
+            score_max=config['score_max'],
+            subset='val',                 # 👈 这一折的验证集
+            num_folds=num_folds,
+            current_fold=current_fold,
+            split_seed=config.get('split_seed', 42),
+            is_train=False,
+            use_mask=use_mask
+        )
+        
+        test_loader = create_dataloader_with_split(
+            data_root=config['data_root'],
+            batch_size=config['batch_size'],
+            num_workers=config['num_workers'],
+            spatial_size=config.get('spatial_size', 112),
+            clip_length=config['clip_length'],
+            clip_stride=config['clip_stride'],
+            score_min=config['score_min'],
+            score_max=config['score_max'],
+            subset='test',                # 👈 这一折的测试集
+            num_folds=num_folds,
+            current_fold=current_fold,
+            split_seed=config.get('split_seed', 42),
+            is_train=False,
+            use_mask=use_mask
+        )
+
+        best_val_spearman = -float('inf')
+        best_test_spearman_for_this_fold = 0.0
+
+        # 3. 正常的 Epoch 训练循环
+        for epoch in range(config['epochs']):
+            train_loss, train_metrics = train_epoch(model, train_loader, optimizer, device, epoch, config, scaler)
+            val_loss, val_metrics = validate(model, val_loader, device, config)
+
+            # 将当前折的日志写入 tensorboard
+            fold_writer.add_scalar('train/loss', train_loss, epoch)
+            fold_writer.add_scalar('train/spearman', train_metrics['spearman'], epoch)
+            fold_writer.add_scalar('val/loss', val_loss, epoch)
+            fold_writer.add_scalar('val/spearman', val_metrics['spearman'], epoch)
+            # ==========================================================
+            # 🌟 【新增：修复 save_freq 不执行的问题】
+            # 注意文件名加上了 fold_{current_fold}，防止不同折互相覆盖！
+            if (epoch + 1) % config.get('save_freq', 20) == 0:
+                save_checkpoint(
+                    model, optimizer, epoch + 1, val_loss, val_metrics,
+                    log_dir, f'checkpoint_fold_{current_fold}_epoch_{epoch + 1}.pth'
+                )
+            # ==========================================================
+            # 保存当前折的最佳模型，并用它在测试集上跑一次最终成绩
+            if val_metrics['spearman'] > best_val_spearman:
+                best_val_spearman = val_metrics['spearman']
+                save_checkpoint(
+                    model, optimizer, epoch + 1, val_loss, val_metrics,
+                    log_dir, f'best_model_fold_{current_fold}.pth'  # 👈 命名包含 fold 编号，防止覆盖
+                )
+                
+                # 🌟 当验证集达到最好时，立刻在测试集上跑一次真实分数
+                print(f"--> [Fold {current_fold}] 验证集提升，在测试集上评估...")
+                test_loss, test_metrics = validate(model, test_loader, device, config)
+                best_test_spearman_for_this_fold = test_metrics['spearman']
+                print(f"--> [Fold {current_fold}] 当前测试集 Spearman: {best_test_spearman_for_this_fold:.4f}")
+
+            if scheduler is not None:
+                scheduler.step()
+                
+        fold_writer.close()
+        
+        # 记录这一折在测试集上的最终成绩
+        fold_results_spearman.append(best_test_spearman_for_this_fold)
+        print(f"★ FOLD {current_fold + 1} 训练结束！最终测试集 Spearman: {best_test_spearman_for_this_fold:.4f}")
+
+    # 4. K折全部跑完，进行终极统计
+    print("\n" + "🚀"*30)
+    print("K-Fold 交叉验证全部完成！")
+    print(f"各折测试集 Spearman 分数: {[f'{score:.4f}' for score in fold_results_spearman]}")
+    mean_spearman = np.mean(fold_results_spearman)
+    std_spearman = np.std(fold_results_spearman)
+    print(f"👑 最终模型平均 Spearman: {mean_spearman:.4f} ± {std_spearman:.4f}")
+    print("🚀"*30 + "\n")
+
+if __name__ == '__main__':
+    main()
 
 if __name__ == '__main__':
     main()
