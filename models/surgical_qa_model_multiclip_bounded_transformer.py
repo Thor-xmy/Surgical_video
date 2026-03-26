@@ -277,7 +277,7 @@ class SurgicalQAModelMultiClipBounded(nn.Module):
         # 4 & 5. 【修改点】：时序平均池化 (Temporal Mean Pooling)
         # 对 num_clips 维度（维度索引为 1）求平均值
         # 无论视频被切成了 5 个 clip 还是 71 个 clip，这里都会被安全地聚合成 (B, 1536)
-        temporal_features = fused_per_clip.mean(dim=1) 
+        temporal_features = trans_out.mean(dim=1) 
         # temporal_features: (B, 1536)
 
         # 6. Regress to score (using fused temporal features directly)
