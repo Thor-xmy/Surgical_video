@@ -499,7 +499,7 @@ if __name__ == '__main__':
 
         # Verify dimensions
         num_clips = features['num_clips']
-        expected_total_dim = num_clips * (512 + 1024)
+        expected_total_dim =   512 + 1024
 
         assert features['static_per_clip'].shape == (video_shape[0], num_clips, 512)
         assert features['dynamic_per_clip'].shape == (video_shape[0], num_clips, 1024)

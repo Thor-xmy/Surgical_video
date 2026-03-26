@@ -26,7 +26,8 @@ from datetime import datetime
 from torch.cuda.amp import autocast, GradScaler
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from models.surgical_qa_model_multiclip_bounded import SurgicalQAModelMultiClipBounded, build_model_multiclip_bounded
+#from models.surgical_qa_model_multiclip_bounded import SurgicalQAModelMultiClipBounded, build_model_multiclip_bounded
+from models.surgical_qa_model_multiclip_bounded_transformer import SurgicalQAModelMultiClipBounded, build_model_multiclip_bounded
 # Modified to use frame sequence loader with proper data splitting
 from utils.data_loader_video_level_frames import create_dataloader_with_split
 from utils.training import AverageMeter, compute_metrics
@@ -36,7 +37,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Train Multi-Clip Bounded Surgical QA Model')
     parser.add_argument('--config', type=str, default='configs/bounded.yaml')
     parser.add_argument('--data_root', type=str, default=None, help='Root directory of dataset')
-    parser.add_argument('--output_dir', type=str, default='output_multiclip_bounded')
+    parser.add_argument('--output_dir', type=str, default='output_multiclip_bounded_transformer')
     parser.add_argument('--epochs', type=int, default=None)
     parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--num_workers', type=int, default=4)
