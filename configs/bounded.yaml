@@ -64,7 +64,7 @@ i3d_path: /root/autodl-tmp/PyTorchConv3D/checkpoints/I3D/rgb_imagenet.pth       
 # ============================================================================
 use_bounded_regression: true   # 使用有界回归器（推荐）
 regressor_hidden_dims: [512,256,128]  # 隐藏层维度
-
+regressor_dropout: 0.5
 # ============================================================================
 # TRAINING SETTINGS
 # ============================================================================

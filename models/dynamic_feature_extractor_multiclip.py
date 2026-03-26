@@ -70,6 +70,7 @@ class DynamicFeatureMultiClip(nn.Module):
         self.max_clips = max_clips
         self.use_early_fusion = use_early_fusion  # 🌟 保存为类的属性
         # Standard I3D backbone
+        self.is_backbone_frozen = freeze_backbone
         self.i3d = InceptionI3D(in_channels=3, num_classes=400)
 
         # Feature extractor: all layers up to Mixed_5c
@@ -415,7 +416,21 @@ class DynamicFeatureMultiClip(nn.Module):
             return features_map, features
         else:
             return features
-
+    def train(self, mode=True):
+        """
+        🌟 核心修改：拦截 model.train() 的广播指令
+        当外部训练脚本调用 model.train() 时，我们让网络其他部分正常进入训练模式，
+        但如果 is_backbone_frozen 为 True，我们就强行把 I3D (feature_extractor) 摁回到 eval() 模式！
+        这能彻底锁死 I3D 内部的 BN 层，防止其统计量被小 Batch 污染。
+        """
+        # 1. 先让父类正常执行 train()，把所有子模块变成 train 模式
+        super().train(mode)
+        
+        # 2. 如果要求冻结主干，且当前正准备进入 train 模式
+        if self.is_backbone_frozen and mode:
+            # 强行把 I3D 特征提取器切换为评估模式 (锁定 BN 层和 Dropout)
+            self.feature_extractor.eval()
+            print("  [INFO] I3D Backbone is frozen. Forced to eval() mode to lock BN stats.")
 
 if __name__ == '__main__':
     # Test multi-clip extraction

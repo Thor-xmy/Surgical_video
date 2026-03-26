@@ -124,7 +124,8 @@ class SurgicalQAModelMultiClipBounded(nn.Module):
         self.static_extractor = StaticFeatureMultiClip(
             resnet_path=config.get('resnet_path', None),
             use_pretrained=config.get('use_pretrained', True),
-            freeze_early_layers=config.get('freeze_backbone', True),
+            #freeze_early_layers=config.get('freeze_backbone', True),
+            freeze_early_layers=False,  # 🌟 强行设为 False，保证 ResNet34 始终全量参与训练！
             output_dim=self.static_dim,
             keyframe_strategy=self.keyframe_strategy
         )
@@ -175,7 +176,8 @@ class SurgicalQAModelMultiClipBounded(nn.Module):
         self.fusion_regressor = BoundedFusionRegressorMultiClip(
             #input_dim=self.expected_clips * self.total_clip_dim,
             input_dim=self.total_clip_dim,
-            hidden_dims=self.config.get('regressor_hidden_dims', [1024, 512, 256, 128])
+            hidden_dims=self.config.get('regressor_hidden_dims', [1024, 512, 256, 128]),
+            dropout_rate=self.config.get('regressor_dropout', 0.5)
         )
 
         print(f"Fusion Regressor initialized with {self.expected_clips} clips")
