@@ -242,7 +242,7 @@ class VideoLevelDatasetFrames(Dataset):
             remaining_ids = [vid for vid in shuffled_ids if vid not in test_ids]
             
             # 从剩余的样本中划出 15% 做验证集，其余做训练集
-            val_size = max(1, int(len(remaining_ids) * 0.15))
+            val_size = max(1, int(len(remaining_ids) * 0.15 + 1)) #####################################
             val_ids = remaining_ids[:val_size]
             train_ids = remaining_ids[val_size:]
             

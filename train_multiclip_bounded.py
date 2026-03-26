@@ -41,7 +41,7 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--num_workers', type=int, default=4)
     parser.add_argument('--learning_rate', type=float, default=1e-4)
-    parser.add_argument('--weight_decay', type=float, default=1e-5)
+    parser.add_argument('--weight_decay', type=float, default=None)
     parser.add_argument('--static_dim', type=int, default=512)
     parser.add_argument('--dynamic_dim', type=int, default=1024)
     parser.add_argument('--clip_length', type=int, default=16)
@@ -598,8 +598,8 @@ def main():
             use_mask=use_mask
         )
 
-        best_val_spearman = -float('inf')
-        best_test_spearman_for_this_fold = 0.0
+        #best_val_spearman = -float('inf')
+        #best_test_spearman_for_this_fold = 0.0
 
         # 3. 正常的 Epoch 训练循环
         for epoch in range(start_epoch, config['epochs']):
@@ -655,5 +655,3 @@ def main():
 if __name__ == '__main__':
     main()
 
-if __name__ == '__main__':
-    main()

@@ -352,9 +352,9 @@ class DynamicFeatureMultiClip(nn.Module):
                 attention_map = masks_aligned.squeeze(1) 
                 debug_flag = (random.random() < 0.05)
                 if debug_flag:
-                    print(f"\n👉 [晚期融合探头]")
-                    print(f"  原 Mask    : min={mask_clip.min().item():.2f}, max={mask_clip.max().item():.2f}")
-                    print(f"  Attention : min={attention_map.min().item():.4f}, max={attention_map.max().item():.4f}")
+                    #print(f"\n👉 [晚期融合探头]")
+                    #print(f"  原 Mask    : min={mask_clip.min().item():.2f}, max={mask_clip.max().item():.2f}")
+                    #print(f"  Attention : min={attention_map.min().item():.4f}, max={attention_map.max().item():.4f}")
                     feat_sum_before = feat.abs().sum().item()
                 feat = feat * (attention_map.unsqueeze(1) + 1.0) 
 

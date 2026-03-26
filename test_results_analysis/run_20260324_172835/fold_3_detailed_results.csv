@@ -1,0 +1,13 @@
+Video_ID,Ground_Truth,Prediction,Abs_Error
+Hei-Chole18_dissection,13.0,18.42,5.42
+Hei-Chole12_dissection,15.0,18.82,3.82
+Hei-Chole14_calot,16.0,19.28,3.28
+Hei-Chole22_dissection,21.0,18.91,2.09
+Hei-Chole3_calot,16.0,17.97,1.97
+Hei-Chole10_dissection,21.0,19.4,1.6
+Hei-Chole13_dissection,20.0,18.71,1.29
+Hei-Chole17_calot,17.0,18.03,1.03
+Hei-Chole4_dissection,18.0,18.86,0.86
+Hei-Chole6_calot,19.0,19.37,0.37
+Hei-Chole17_dissection,18.0,18.2,0.2
+Hei-Chole13_calot,19.0,19.02,0.02

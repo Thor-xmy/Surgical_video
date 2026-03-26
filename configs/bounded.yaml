@@ -13,7 +13,7 @@
 # DATA SETTINGS
 # ============================================================================
 data_root: /root/autodl-tmp/SV_test/data  # JIGSAWS 数据集根目录
-batch_size: 2
+batch_size: 3
 num_workers: 4
 num_folds: 4
 #split_ratio: [0.7, 0.15, 0.15]  # 新增：70%训练，15%验证，15%测试
@@ -53,7 +53,7 @@ dynamic_dim: 1024      # I3D 特征维度（标准 Mixed_5c 输出）
 freeze_backbone: false   # 冻结主干网络
 use_pretrained: true   # 使用 ImageNet 预训练权重
 #use_mask_loss: true   # 使用掩膜监督损失
-use_mask: true
+use_mask: false
 use_early_fusion: false  
 # Backbone checkpoints
 resnet_path: null       # ResNet 检查点路径
@@ -63,14 +63,14 @@ i3d_path: /root/autodl-tmp/PyTorchConv3D/checkpoints/I3D/rgb_imagenet.pth       
 # BOUNDED REGRESSION SETTINGS
 # ============================================================================
 use_bounded_regression: true   # 使用有界回归器（推荐）
-regressor_hidden_dims: [1024, 512, 256, 128]  # 隐藏层维度
+regressor_hidden_dims: [512,256,128]  # 隐藏层维度
 
 # ============================================================================
 # TRAINING SETTINGS
 # ============================================================================
-epochs: 150
+epochs: 100
 #learning_rate: 0.0001
-weight_decay: 0.0      # 论文要求: 0!
+weight_decay: 0.0001      # 论文要求: 0!
 momentum: 0.9
 optimizer: adam        # 选项: sgd, adam, adamw
 
@@ -81,7 +81,7 @@ lr_gamma: 0.1
 
 # 差分学习率（论文要求）
 backbone_lr: 0.0001     # I3D 主干网络学习率
-static_lr: 0.001       # ResNet + 回归器学习率
+static_lr: 0.0003       # ResNet + 回归器学习率
 
 
 # ============================================================================
@@ -108,7 +108,7 @@ min_delta: 0.001      # 最小改进阈值
 # ============================================================================
 output_dir: ./output_muticlip_bounded
 print_freq: 2        # 每 N 步打印一次
-save_freq: 30          # 每 N 轮保存一次检查点
+save_freq: 50          # 每 N 轮保存一次检查点
 log_freq: 10          # 每 N 步记录一次 Tensor
 
 # ============================================================================
