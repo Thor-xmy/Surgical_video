@@ -34,8 +34,8 @@ class StaticFeatureMultiClip(nn.Module):
     """
     def __init__(self,
                  resnet_path=None,
-                 use_pretrained=True,
-                 freeze_early_layers=True,
+                 use_pretrained=False,
+                 freeze_early_layers=False,
                  output_dim=512,
                  keyframe_strategy='middle'):  # 'middle', 'first', 'last', 'random'
         """

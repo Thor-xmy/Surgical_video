@@ -25,6 +25,8 @@ import json
 import glob
 from typing import List, Dict, Optional
 import random
+import torchvision.transforms.functional as TF
+
 
 
 class VideoLevelDatasetFrames(Dataset):
@@ -335,8 +337,20 @@ class VideoLevelDatasetFrames(Dataset):
             frame = frames[i]  # (H, W, 3)
 
             # Resize
-            if H != self.spatial_size[0] or W != self.spatial_size[1]:
-                frame = cv2.resize(frame, self.spatial_size, interpolation=cv2.INTER_LINEAR)
+            # Resize (等比例缩放 + 中心裁剪)
+            target_H, target_W = self.spatial_size
+            if H != target_H or W != target_W:
+                # 1. 计算缩放比例，使得短边对齐目标尺寸
+                scale = max(target_H / H, target_W / W)
+                new_H, new_W = int(H * scale), int(W * scale)
+                frame = cv2.resize(frame, (new_W, new_H), interpolation=cv2.INTER_LINEAR)
+
+                # 2. 从中心裁剪出 112x112
+                start_y = (new_H - target_H) // 2
+                start_x = (new_W - target_W) // 2
+                frame = frame[start_y : start_y + target_H, start_x : start_x + target_W]
+            #if H != self.spatial_size[0] or W != self.spatial_size[1]:
+                #frame = cv2.resize(frame, self.spatial_size, interpolation=cv2.INTER_LINEAR)
 
             # Convert BGR to RGB
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -375,8 +389,17 @@ class VideoLevelDatasetFrames(Dataset):
             m = mask[i]  # (H, W)
 
             # Resize
+            # Resize Mask (必须与视频帧的等比缩放和裁剪保持完全一致)
             if H != video_H or W != video_W:
-                m = cv2.resize(m, (video_W, video_H), interpolation=cv2.INTER_NEAREST)
+                scale = max(video_H / H, video_W / W)
+                new_H, new_W = int(H * scale), int(W * scale)
+                m = cv2.resize(m, (new_W, new_H), interpolation=cv2.INTER_NEAREST)
+
+                start_y = (new_H - video_H) // 2
+                start_x = (new_W - video_W) // 2
+                m = m[start_y : start_y + video_H, start_x : start_x + video_W]
+            #if H != video_H or W != video_W:
+                #m = cv2.resize(m, (video_W, video_H), interpolation=cv2.INTER_NEAREST)
 
             # Normalize to [0, 1]
             #m = m / 255.0
@@ -442,6 +465,37 @@ class VideoLevelDatasetFrames(Dataset):
                 print(f"Warning: No score found for {video_id} (searched as: {video_id_normalized}), using 0")
                 normalized_score = 0.0
 
+            # ==========================================
+            # 🌟 新增：视频一致性数据增强 (Video-Consistent Augmentation)
+            # ==========================================
+            if self.is_train:  # 只有在训练集且开启训练模式时才进行增强
+                
+                # 策略 1：随机水平翻转 (概率 50%)
+                if random.random() < 0.5:
+                    # video_tensor 形状是 (C, T, H, W)，沿着宽度 W (dim=-1) 翻转
+                    video_tensor = torch.flip(video_tensor, dims=[-1])
+                    if mask_tensor is not None:
+                        # mask_tensor 形状是 (T, H, W)，同样沿宽度翻转以保持对齐
+                        mask_tensor = torch.flip(mask_tensor, dims=[-1])
+
+                # 策略 2：随机色彩抖动 (概率 50%，仅对视频画面有效)
+                if random.random() < 0.5:
+                    # ⚠️ 关键：提取出一个全局固定的随机亮度/对比度系数，应用到所有帧，防止视频闪烁
+                    brightness_factor = random.uniform(0.8, 1.2) # 亮度波动 ±20%
+                    contrast_factor = random.uniform(0.8, 1.2)   # 对比度波动 ±20%
+
+                    # torchvision 需要的输入格式是 (..., C, H, W)
+                    # 我们将视频从 (C, T, H, W) 转置为 (T, C, H, W)
+                    video_tensor_t = video_tensor.permute(1, 0, 2, 3)
+                    
+                    # 批量调整整段视频的亮度和对比度
+                    video_tensor_t = TF.adjust_brightness(video_tensor_t, brightness_factor)
+                    video_tensor_t = TF.adjust_contrast(video_tensor_t, contrast_factor)
+                    
+                    # 调整完毕后再转置回原始形状 (C, T, H, W)
+                    video_tensor = video_tensor_t.permute(1, 0, 2, 3)
+            # ==========================================
+
             # 🌟🌟🌟 这里是本次修复的核心：条件性地构建返回字典
             sample = {
                 'video': video_tensor,                                             # (C, T, H, W)
@@ -454,11 +508,15 @@ class VideoLevelDatasetFrames(Dataset):
                 sample['masks'] = mask_tensor
 
             return sample
-
+        #except Exception as e:
+            #print(f"Error loading {video_id}: {e}")
+            # Return first valid video instead
+            #return self.__getitem__(0)
         except Exception as e:
             print(f"Error loading {video_id}: {e}")
-            # Return first valid video instead
-            return self.__getitem__(0)
+            # 不要递归调用 self.__getitem__(0)
+            # 建议返回一个全零的 Dummy 数据或抛出错误以便调试
+            raise e
 
 
 def create_dataloader_with_split(data_root,

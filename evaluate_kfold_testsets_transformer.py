@@ -60,7 +60,7 @@ def main():
 
     # 2. 遍历每一折
     for fold in range(num_folds):
-        weight_path = os.path.join(args.weights_dir, f'checkpoint_fold_{fold}_epoch_50.pth')################################################
+        weight_path = os.path.join(args.weights_dir, f'best_model_fold_{fold}.pth')################################################
         if not os.path.exists(weight_path):
             print(f"⚠️ 跳过 Fold {fold}: 找不到权重文件 {weight_path}")
             continue

@@ -41,17 +41,17 @@ def parse_args():
     parser.add_argument('--data_root', type=str, default=None, help='Root directory of dataset')
     parser.add_argument('--output_dir', type=str, default='output_multiclip_bounded_transformer')
     parser.add_argument('--epochs', type=int, default=None)
-    parser.add_argument('--batch_size', type=int, default=4)
+    parser.add_argument('--batch_size', type=int, default=None)
     parser.add_argument('--num_workers', type=int, default=4)
     parser.add_argument('--learning_rate', type=float, default=1e-4)
     parser.add_argument('--weight_decay', type=float, default=None)
-    parser.add_argument('--static_dim', type=int, default=512)
+    parser.add_argument('--static_dim', type=int, default=None)
     parser.add_argument('--dynamic_dim', type=int, default=1024)
-    parser.add_argument('--clip_length', type=int, default=16)
-    parser.add_argument('--clip_stride', type=int, default=10)
+    parser.add_argument('--clip_length', type=int, default=None)
+    parser.add_argument('--clip_stride', type=int, default=None)
     parser.add_argument('--max_clips', type=int, default=None)
     parser.add_argument('--freeze_backbone', action='store_true', default=True)
-    parser.add_argument('--use_mixed_conv', action='store_true', default=True)
+    parser.add_argument('--use_mixed_conv', action='store_true', default=False)
     
     # 🌟 修改点 1：将 score_min 和 score_max 的默认值设为 None
     # 这样它们就不会强行覆盖你 bounded.yaml 里设置的 5.0 和 25.0 了
@@ -80,24 +80,24 @@ def load_config(config_path, args):
         config = {}
 
     config_updates = {
-        'data_root': args.data_root,
+        #'data_root': args.data_root,
         #'batch_size': args.batch_size,
-        'num_workers': args.num_workers,
-        'learning_rate': args.learning_rate,
-        'weight_decay': args.weight_decay,
-        'static_dim': args.static_dim,
-        'dynamic_dim': args.dynamic_dim,
-        'clip_length': args.clip_length,
-        'clip_stride': args.clip_stride,
-        'max_clips': args.max_clips,
+        #'num_workers': args.num_workers,
+        #'learning_rate': args.learning_rate,
+        #'weight_decay': args.weight_decay,
+        #'static_dim': args.static_dim,
+        #'dynamic_dim': args.dynamic_dim,
+        #'clip_length': args.clip_length,
+        #'clip_stride': args.clip_stride,
+        #'max_clips': args.max_clips,
         #'freeze_backbone': args.freeze_backbone,
-        'use_mixed_conv': args.use_mixed_conv,
-        'score_min': args.score_min,
-        'score_max': args.score_max,
+        #'use_mixed_conv': args.use_mixed_conv,
+        #'score_min': args.score_min,
+        #'score_max': args.score_max,
         #'use_pretrained': args.pretrained,
-        'epochs': args.epochs,
+        #'epochs': args.epochs,
         #'print_freq': args.print_freq,
-        'save_freq': args.save_freq
+        #'save_freq': args.save_freq
     }
 
     for key, value in config_updates.items():
