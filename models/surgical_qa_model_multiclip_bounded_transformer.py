@@ -123,7 +123,8 @@ class SurgicalQAModelMultiClipBounded(nn.Module):
         print("Initializing Static Feature Extractor (ResNet-34) with Multi-Clip...")
         self.static_extractor = StaticFeatureMultiClip(
             resnet_path=config.get('resnet_path', None),
-            use_pretrained=config.get('use_pretrained', True),
+            #use_pretrained=config.get('use_pretrained', True),
+            use_pretrained=config.get('use_pretrained_resnet', True),
             #freeze_early_layers=config.get('freeze_backbone', True),
             freeze_early_layers=False,  # 🌟 强行设为 False，保证 ResNet34 始终全量参与训练！
             output_dim=self.static_dim,
@@ -134,7 +135,8 @@ class SurgicalQAModelMultiClipBounded(nn.Module):
         print("Initializing Dynamic Feature Extractor (I3D) with Multi-Clip...")
         self.dynamic_extractor = DynamicFeatureMultiClip(
             i3d_path=config.get('i3d_path', None),
-            use_pretrained_i3d=config.get('use_pretrained_i3d', False),
+            use_pretrained_i3d=config.get('use_pretrained_i3d', True),
+            #use_pretrained_i3d=config.get('use_pretrained_i3d', False),
             output_dim=self.dynamic_dim,
             freeze_backbone=config.get('freeze_backbone', True),
             use_mixed_conv=config.get('use_mixed_conv', True),
@@ -360,34 +362,44 @@ class SurgicalQAModelMultiClipBounded(nn.Module):
             score_target = (score_normalized - norm_min) / norm_range * target_range + target_min
 
         return score_target
-    '''
+    
     def compute_loss(self, score_pred, score_gt):
         """
-        Compute total loss for training.
-
-        注意：由于使用了 Sigmoid 和归一化标签，score_pred 和 score_gt 都在 [0, 1] 范围
-
-        Args:
-            score_pred: (B, 1) - Predicted scores [0, 1]
-            score_gt: (B,) or (B, 1) - Ground truth scores [0, 1]
-
-        Returns:
-            total_loss: Combined loss
-            loss_dict: Individual losses
+        纯 Focal MSE 损失函数 (无排序损失)
+        利用 Focal 机制让模型更加关注误差较大的“离群值”，从而打破均值预测。
         """
-        # Score regression loss (MSE)
-        if score_gt.dim() == 2:
-            score_gt = score_gt.squeeze(-1)
-        score_loss = F.mse_loss(score_pred.squeeze(-1), score_gt)
+        # 展平为 1D Tensor: (B,)，防止广播机制出错
+        score_pred_flat = score_pred.view(-1)
+        score_gt_flat = score_gt.view(-1)
 
+        # 1. 计算绝对误差 (Error)
+        error = torch.abs(score_pred_flat - score_gt_flat)
+        
+        # 2. 计算 Focal 权重：误差越大，权重越大
+        # gamma 控制对难样本（离群点）的关注程度。
+        # gamma=0 时退化为普通 MSE；gamma>0 时开始偏重离群点，推荐从 1.0 或 2.0 开始试。
+        gamma = self.config.get('focal_gamma', 2.0)
+        
+        # 加上 1e-5 是为了防止底层误差极其接近 0 时，梯度计算出现 NaN 或极度不稳定
+        focal_weight = torch.pow(error + 1e-5, gamma) 
+        
+        # 3. 计算基础的 MSE Loss 
+        # ⚠️ 注意：这里必须用 reduction='none'，以便保留每个样本的 loss 从而与权重逐一相乘
+        base_mse = F.mse_loss(score_pred_flat, score_gt_flat, reduction='none')
+        
+        # 4. 权重与基础 MSE 相乘，并求整个 Batch 的均值，得到最终的 Loss
+        total_loss = (focal_weight * base_mse).mean()
+
+        # 构建日志字典返回，保留 'score_loss' 键是为了兼容外部 Tensorboard 打印代码
         loss_dict = {
-            'score_loss': score_loss.item(),
-            'total_loss': score_loss.item()
+            'total_loss': total_loss.item(),
+            'score_loss': total_loss.item() 
         }
 
-        return score_loss, loss_dict
+        return total_loss, loss_dict
     '''
     def compute_loss(self, score_pred, score_gt):
+
         """
         Compute total loss for training.
         支持通过 config 切换 MSE 或 Smooth L1 + Ranking Loss
@@ -453,11 +465,14 @@ class SurgicalQAModelMultiClipBounded(nn.Module):
                 'score_loss': reg_loss.item(),  
                 'rank_loss': rank_loss.item() if isinstance(rank_loss, torch.Tensor) else 0.0
             }
+        
 
         else:
             raise ValueError(f"未知的损失函数类型 (loss_type): {loss_type}")
 
         return total_loss, loss_dict
+    '''
+    
     def unfreeze_backbone(self, layers_to_unfreeze=['all']):
         """
         Unfreeze backbone layers for fine-tuning.

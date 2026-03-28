@@ -61,7 +61,7 @@ def parse_args():
     parser.add_argument('--resume', type=str, default=None)
     # 🌟 新增：指定单独跑哪一折（0, 1, 2, 3）。如果不指定(None)，就跑完整的多折循环
     parser.add_argument('--target_fold', type=int, default=None, help='Specify a single fold to train/resume')
-    parser.add_argument('--pretrained', action='store_true', default=True)
+    parser.add_argument('--pretrained', action='store_true', default=None)
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--print_freq', type=int, default=None)
@@ -94,7 +94,7 @@ def load_config(config_path, args):
         'use_mixed_conv': args.use_mixed_conv,
         'score_min': args.score_min,
         'score_max': args.score_max,
-        'use_pretrained': args.pretrained,
+        #'use_pretrained': args.pretrained,
         'epochs': args.epochs,
         #'print_freq': args.print_freq,
         'save_freq': args.save_freq
@@ -238,7 +238,8 @@ def train_epoch(model, dataloader, optimizer, device, epoch, config, scaler=None
         classname = m.__class__.__name__
         if classname.find('BatchNorm') != -1:
             m.eval()
-    model.apply(freeze_bn)
+    #model.apply(freeze_bn)
+    model.dynamic_extractor.apply(freeze_bn)
     #=====================================================================
 
     loss_meter = AverageMeter()
@@ -289,10 +290,11 @@ def train_epoch(model, dataloader, optimizer, device, epoch, config, scaler=None
             score_pred = model(video, masks)
             loss, loss_dict = model.compute_loss(score_pred, score_gt)
             loss = loss / accumulation_steps
+            loss.backward()
             if ((batch_idx + 1) % accumulation_steps == 0) or ((batch_idx + 1) == len(dataloader)):
                 optimizer.step()
                 optimizer.zero_grad()
-            #loss.backward()
+            
             #optimizer.step()
 
         loss_meter.update(loss.item() * accumulation_steps, batch_size)
@@ -617,7 +619,8 @@ def main():
 
         val_loader = create_dataloader_with_split(
             data_root=config['data_root'],
-            batch_size=config['batch_size'],
+            #batch_size=config['batch_size'],
+            batch_size=config.get('val_batch_size', config['batch_size']),
             num_workers=config['num_workers'],
             spatial_size=config.get('spatial_size', 112),
             clip_length=config['clip_length'],
@@ -634,7 +637,8 @@ def main():
         
         test_loader = create_dataloader_with_split(
             data_root=config['data_root'],
-            batch_size=config['batch_size'],
+            #batch_size=config['batch_size'],
+            batch_size=config.get('test_batch_size', config['batch_size']),
             num_workers=config['num_workers'],
             spatial_size=config.get('spatial_size', 112),
             clip_length=config['clip_length'],

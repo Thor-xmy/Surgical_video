@@ -97,9 +97,12 @@ class DynamicFeatureMultiClip(nn.Module):
                 param.requires_grad = False
 
         # Load checkpoint if provided
-        if i3d_path is not None:
+        #if i3d_path is not None:
+            #self.load_checkpoint(i3d_path)
+        if use_pretrained_i3d and (i3d_path is not None):
             self.load_checkpoint(i3d_path)
-
+        elif not use_pretrained_i3d:
+            print("  ⚠️ I3D 预训练被禁用 (Random Initialization)")
     def load_checkpoint(self, checkpoint_path):
         """Load I3D checkpoint."""
         print("Loading I3D checkpoint from {}".format(checkpoint_path))

@@ -12,10 +12,10 @@
 # ============================================================================
 # DATA SETTINGS
 # ============================================================================
-data_root: /root/autodl-tmp/SV_test/data  # JIGSAWS 数据集根目录
-batch_size: 2
-val_batch_size: 6         # 验证集的 Batch Size（不计算梯度，可以设大点）
-test_batch_size: 12        # 测试集的 Batch Size
+data_root: /root/autodl-tmp/SV_test/data/heichole-calot  # JIGSAWS 数据集根目录
+batch_size: 5
+val_batch_size: 3         # 验证集的 Batch Size（不计算梯度，可以设大点）
+test_batch_size: 6        # 测试集的 Batch Size
 num_workers: 4
 num_folds: 4
 #split_ratio: [0.7, 0.15, 0.15]  # 新增：70%训练，15%验证，15%测试
@@ -53,7 +53,9 @@ normalize: true       # 归一化像素值到 [-1, 1]
 static_dim: 512        # ResNet-34 特征维度
 dynamic_dim: 1024      # I3D 特征维度（标准 Mixed_5c 输出）
 freeze_backbone: true   # 冻结主干网络
-use_pretrained: true   # 使用 ImageNet 预训练权重
+#use_pretrained: true   # 使用 ImageNet 预训练权重
+use_pretrained_resnet: false   # false 表示 ResNet 完全随机初始化
+use_pretrained_i3d: true
 #use_mask_loss: true   # 使用掩膜监督损失
 use_mask: false
 use_early_fusion: false  
@@ -136,15 +138,19 @@ transformer_dropout: 0.3    # 防止过拟合的 Dropout
 
 
 
-use_warmup: true
+use_warmup: false
 warmup_epochs: 5
-accumulation_steps: 5
+accumulation_steps: 1
 # ============================================================================
 # LOSS SETTINGS
 # ============================================================================
 # 可选项: 'mse' 或 'smooth_l1_rank'
-loss_type: 'smooth_l1_rank'
-
+#loss_type: 'smooth_l1_rank'
+# ============================================================================
+# LOSS SETTINGS
+# ============================================================================
+loss_type: 'focal_mse'  # 虽然上面代码把分支去掉了，但在配置里写明是个好习惯
+focal_gamma: 1.0        # 调节对“离群点”的惩罚力度。如果模型收敛困难，可以降到 1.0
 # 如果使用 smooth_l1_rank，可以调节以下超参数：
 smooth_l1_beta: 0.1    # Smooth L1 的平滑阈值
 rank_margin: 0.05      # 排序损失的边距 (0.05 对应 24分满分里的 1.2 分差距)
