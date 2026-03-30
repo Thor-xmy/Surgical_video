@@ -507,13 +507,25 @@ class SurgicalQAModelMultiClipBounded(nn.Module):
                 gt_j = score_gt_flat.unsqueeze(0).expand(batch_size, batch_size)
                 
                 # --- 1.1 排斥力 (Ranking Loss) ---
+                
+                # --- 1.1 排斥力 (Ranking Loss) ---
                 mask_diff = gt_i > gt_j
                 if mask_diff.sum() > 0:
-                    target = torch.ones_like(pred_i[mask_diff])
-                    margin = self.config.get('rank_margin', 0.05)
-                    rank_loss = F.margin_ranking_loss(
-                        pred_i[mask_diff], pred_j[mask_diff], target, margin=margin
-                    )
+                    # 🌟 读取 YAML 中的开关，默认设置为 True (推荐)
+                    use_dynamic_margin = self.config.get('use_dynamic_margin', True)
+                    
+                    if use_dynamic_margin:
+                        # 【分支 A：动态 Margin】提取这对视频的真实归一化分差，作为自适应安全距离
+                        dynamic_margin = gt_i[mask_diff] - gt_j[mask_diff]
+                        # 使用 F.relu 完美复刻 margin_ranking_loss: max(0, -(Pred_i - Pred_j) + Margin)
+                        rank_loss = F.relu(-(pred_i[mask_diff] - pred_j[mask_diff]) + dynamic_margin).mean()
+                    else:
+                        # 【分支 B：固定 Margin】回退到传统的统一常数距离模式
+                        target = torch.ones_like(pred_i[mask_diff])
+                        margin = self.config.get('rank_margin', 0.05)
+                        rank_loss = F.margin_ranking_loss(
+                            pred_i[mask_diff], pred_j[mask_diff], target, margin=margin
+                        )
 
                 # --- 1.2 吸引力 (Tie Loss) 🌟 新增核心逻辑 ---
                 if use_tie_loss:

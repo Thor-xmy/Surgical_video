@@ -7,10 +7,10 @@
 # ============================================================================
 # DATA SETTINGS
 # ============================================================================
-data_root: /root/autodl-tmp/SV_test/data/heichole_calot  # JIGSAWS 数据集根目录
+data_root: /root/autodl-tmp/SV_test/data/Knot_tying  # JIGSAWS 数据集根目录
 batch_size: 3
 val_batch_size: 3         # 验证集的 Batch Size（不计算梯度，可以设大点）
-test_batch_size: 6        # 测试集的 Batch Size
+test_batch_size: 9        # 测试集的 Batch Size
 num_workers: 4
 num_folds: 4
 skip_val: true   # true 表示不划分那 3 个视频作为验证集，直接用测试集保存 best_model
@@ -22,8 +22,8 @@ split_seed: 42
 # ============================================================================
 # JIGSAWS GRS 分数范围：6-30
 # 归一化到 0-1 范围用于训练
-score_min: 5.0           # 原始 GRS 分数最小值
-score_max: 25.0          # 原始 GRS 分数最大值
+score_min: 6.0           # 原始 GRS 分数最小值
+score_max: 30.0          # 原始 GRS 分数最大值
 target_min: 0.0         # 归一化目标最小值（用于训练）
 target_max: 1.0         # 归一化目标最大值（用于训练）
 
@@ -142,6 +142,7 @@ use_tie_loss: true                # 🌟 新增：是否开启“同分聚合损
 use_dynamic_weights: false        # 🌟 (建议小样本时关闭，手动控制权重更稳)
 
 lambda_rank: 1                  # 排序(排斥力) Loss 权重
-lambda_mean: 0.0                  # 均值锚点 Loss 权重
-lambda_tie: 0.5                   # 🌟 新增：同分聚合(吸引力) Loss 权重 (手动时生效)
+lambda_mean: 0                  # 均值锚点 Loss 权重
+lambda_tie: 0.2                   # 🌟 新增：同分聚合(吸引力) Loss 权重 (手动时生效)
+use_dynamic_margin: true
 rank_margin: 0.1
