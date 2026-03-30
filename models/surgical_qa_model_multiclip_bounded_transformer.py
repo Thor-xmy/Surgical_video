@@ -235,7 +235,7 @@ class SurgicalQAModelMultiClipBounded(nn.Module):
             hidden_dims=self.config.get('regressor_hidden_dims', default_hidden_dims),
             dropout_rate=self.config.get('regressor_dropout', 0.5)
         )
-
+        '''
         # ====== 🌟 新增：动态权重与分布锚点注册 ======
         self.use_mean_penalty = self.config.get('use_mean_penalty', False)
         self.use_dynamic_weights = self.config.get('use_dynamic_weights', False)
@@ -250,6 +250,31 @@ class SurgicalQAModelMultiClipBounded(nn.Module):
             self.log_vars = nn.Parameter(torch.zeros(num_vars))
         else:
             print("  [Auto-Loss] 动态权重未开启，使用固定超参数权重。")
+        '''
+        # ====== 🌟 新增：动态权重与多个辅助 Loss 注册 ======
+        self.use_mean_penalty = self.config.get('use_mean_penalty', False)
+        self.use_tie_loss = self.config.get('use_tie_loss', False)
+        self.use_dynamic_weights = self.config.get('use_dynamic_weights', False)
+        
+        if self.use_dynamic_weights:
+            # 采用字典来动态管理可学习参数的索引，极其安全！
+            self.loss_indices = {'score': 0, 'rank': 1}
+            num_vars = 2
+            
+            if self.use_mean_penalty:
+                self.loss_indices['mean'] = num_vars
+                num_vars += 1
+                
+            if self.use_tie_loss:
+                self.loss_indices['tie'] = num_vars
+                num_vars += 1
+                
+            self.log_vars = nn.Parameter(torch.zeros(num_vars))
+            print(f"  [Auto-Loss] 开启自适应权重！模型将动态平衡 {num_vars} 个 Loss 的占比。")
+        else:
+            print("  [Auto-Loss] 动态权重未开启，使用固定超参数权重。")
+
+        
         print(f"Fusion Regressor initialized with {self.expected_clips} clips")
         print(f"  Input dimension: {self.expected_clips * self.total_clip_dim}")
         print("Model initialized successfully!")
@@ -436,7 +461,147 @@ class SurgicalQAModelMultiClipBounded(nn.Module):
             score_target = (score_normalized - norm_min) / norm_range * target_range + target_min
 
         return score_target
+    
+    
+    def compute_loss(self, score_pred, score_gt):
+        """
+        高度可配置的计算 Loss 函数 (Tie-Loss 终极版)：
+        支持：分数(Score) + 排序(Rank) + 锚点(Mean) + 同分聚合(Tie)
+        """
+        score_pred_flat = score_pred.view(-1)
+        score_gt_flat = score_gt.view(-1)
 
+        # ==========================================
+        # 模块 A：计算基础的分数 Loss (Score Loss)
+        # ==========================================
+        score_loss_type = self.config.get('score_loss_type', 'mae').lower()
+        if score_loss_type == 'mse':
+            score_loss = F.mse_loss(score_pred_flat, score_gt_flat)
+        elif score_loss_type == 'mae':
+            score_loss = F.l1_loss(score_pred_flat, score_gt_flat)
+        else:
+            raise ValueError(f"未知的 score_loss_type: {score_loss_type}")
+
+        loss_type = self.config.get('loss_type', 'score_plus_rank').lower()
+
+        if loss_type == 'score_only':
+            loss_dict = {
+                'total_loss': score_loss.item(), 'score_loss': score_loss.item(),
+                'rank_loss': 0.0, 'mean_loss': 0.0, 'tie_loss': 0.0
+            }
+            return score_loss, loss_dict
+
+        # ==========================================
+        # 模块 B：组合模式 (分数 + 排序 + 锚点 + 同分聚合)
+        # ==========================================
+        elif loss_type == 'score_plus_rank':
+            batch_size = score_pred_flat.size(0)
+            rank_loss = torch.tensor(0.0, device=score_pred.device)
+            tie_loss = torch.tensor(0.0, device=score_pred.device)
+            use_tie_loss = self.config.get('use_tie_loss', False)
+
+            if batch_size > 1:
+                pred_i = score_pred_flat.unsqueeze(1).expand(batch_size, batch_size)
+                pred_j = score_pred_flat.unsqueeze(0).expand(batch_size, batch_size)
+                gt_i = score_gt_flat.unsqueeze(1).expand(batch_size, batch_size)
+                gt_j = score_gt_flat.unsqueeze(0).expand(batch_size, batch_size)
+                
+                # --- 1.1 排斥力 (Ranking Loss) ---
+                mask_diff = gt_i > gt_j
+                if mask_diff.sum() > 0:
+                    target = torch.ones_like(pred_i[mask_diff])
+                    margin = self.config.get('rank_margin', 0.05)
+                    rank_loss = F.margin_ranking_loss(
+                        pred_i[mask_diff], pred_j[mask_diff], target, margin=margin
+                    )
+
+                # --- 1.2 吸引力 (Tie Loss) 🌟 新增核心逻辑 ---
+                if use_tie_loss:
+                    # 创建对角线掩码（防止视频自己跟自己算损失）
+                    eye_mask = torch.eye(batch_size, dtype=torch.bool, device=score_pred.device)
+                    # 找出真值相等，且不是同一个视频的 Pairs
+                    mask_tie = (gt_i == gt_j) & (~eye_mask)
+                    
+                    if mask_tie.sum() > 0:
+                        # 强行让同分视频的预测值靠近（使用 MSE 效果更好，差距越大惩罚越重）
+                        tie_loss = F.mse_loss(pred_i[mask_tie], pred_j[mask_tie])
+
+            # --- 2. 计算分布锚点 Loss (Mean Loss) ---
+            use_mean_penalty = self.config.get('use_mean_penalty', False)
+            mean_loss = torch.tensor(0.0, device=score_pred.device)
+            if use_mean_penalty:
+                mean_loss = F.l1_loss(score_pred_flat.mean(), score_gt_flat.mean())
+
+            # --- 3. 终极融合：动态 vs 手动 ---
+            use_dynamic_weights = self.config.get('use_dynamic_weights', False)
+            
+            if use_dynamic_weights:
+                # [处理 Score]
+                idx_score = self.loss_indices['score']
+                precision_score = torch.exp(-self.log_vars[idx_score])
+                loss_score_weighted = precision_score * score_loss + self.log_vars[idx_score]
+                
+                # [处理 Rank]
+                idx_rank = self.loss_indices['rank']
+                if isinstance(rank_loss, torch.Tensor) and rank_loss.requires_grad:
+                    precision_rank = torch.exp(-self.log_vars[idx_rank])
+                    loss_rank_weighted = precision_rank * rank_loss + self.log_vars[idx_rank]
+                else:
+                    loss_rank_weighted = 0.0
+                
+                # [处理 Mean]
+                if use_mean_penalty:
+                    idx_mean = self.loss_indices['mean']
+                    precision_mean = torch.exp(-self.log_vars[idx_mean])
+                    loss_mean_weighted = precision_mean * mean_loss + self.log_vars[idx_mean]
+                else:
+                    loss_mean_weighted = 0.0
+
+                # [处理 Tie]
+                if use_tie_loss:
+                    idx_tie = self.loss_indices['tie']
+                    # ⚠️ 防爆零保护：如果这个 Batch 碰巧没有同分视频，绝对不能计算 log_vars 惩罚！
+                    if isinstance(tie_loss, torch.Tensor) and tie_loss.requires_grad:
+                        precision_tie = torch.exp(-self.log_vars[idx_tie])
+                        loss_tie_weighted = precision_tie * tie_loss + self.log_vars[idx_tie]
+                    else:
+                        loss_tie_weighted = 0.0
+                else:
+                    loss_tie_weighted = 0.0
+                    
+                total_loss = loss_score_weighted + loss_rank_weighted + loss_mean_weighted + loss_tie_weighted
+                
+            else:
+                # 【模式：手动固定权重】
+                lambda_rank = self.config.get('lambda_rank', 1.0)
+                lambda_mean = self.config.get('lambda_mean', 1.0) if use_mean_penalty else 0.0
+                lambda_tie = self.config.get('lambda_tie', 1.0) if use_tie_loss else 0.0
+                
+                total_loss = score_loss + (lambda_rank * rank_loss) + (lambda_mean * mean_loss) + (lambda_tie * tie_loss)
+
+            # --- 4. 日志输出 ---
+            loss_dict = {
+                'total_loss': total_loss.item(),
+                'score_loss': score_loss.item(),  
+                'rank_loss': rank_loss.item() if isinstance(rank_loss, torch.Tensor) else 0.0,
+                'mean_loss': mean_loss.item() if isinstance(mean_loss, torch.Tensor) else 0.0,
+                'tie_loss': tie_loss.item() if isinstance(tie_loss, torch.Tensor) else 0.0
+            }
+            
+            # (可选) 记录自适应权重曲线
+            if use_dynamic_weights:
+                loss_dict['weight_score'] = torch.exp(-self.log_vars[self.loss_indices['score']]).item()
+                loss_dict['weight_rank']  = torch.exp(-self.log_vars[self.loss_indices['rank']]).item()
+                if use_mean_penalty:
+                    loss_dict['weight_mean'] = torch.exp(-self.log_vars[self.loss_indices['mean']]).item()
+                if use_tie_loss:
+                    loss_dict['weight_tie'] = torch.exp(-self.log_vars[self.loss_indices['tie']]).item()
+
+            return total_loss, loss_dict
+
+        else:
+            raise ValueError(f"未知的总 loss_type: {loss_type}")
+    '''
     def compute_loss(self, score_pred, score_gt):
         """
         高度可配置的计算 Loss 函数 (终极版)：
@@ -546,6 +711,7 @@ class SurgicalQAModelMultiClipBounded(nn.Module):
 
         else:
             raise ValueError(f"未知的总 loss_type: {loss_type}")
+    '''
 
     def unfreeze_backbone(self, layers_to_unfreeze=['all']):
         """

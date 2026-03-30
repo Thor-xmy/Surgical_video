@@ -1,6 +1,3 @@
-# ============================================================================
-# BOUNDED VERSION CONFIGURATION
-#
 # 配合归一化标签和有界回归器的配置
 # 修改说明：
 #   1. 使用 SurgicalQAModelBounded（带 Sigmoid 的有界模型）
@@ -8,12 +5,10 @@
 #   3. GRS 分数 [6,30] 归一化到 [0,1] 范围用于训练
 #   4. 模型输出 [0,1]，推理时用 model.denormalize_score() 转换回 [6,30]
 # ============================================================================
-
-# ============================================================================
 # DATA SETTINGS
 # ============================================================================
-data_root: /root/autodl-tmp/SV_test/data/heichole_dissection  # JIGSAWS 数据集根目录
-batch_size: 6
+data_root: /root/autodl-tmp/SV_test/data/heichole_calot  # JIGSAWS 数据集根目录
+batch_size: 3
 val_batch_size: 3         # 验证集的 Batch Size（不计算梯度，可以设大点）
 test_batch_size: 6        # 测试集的 Batch Size
 num_workers: 4
@@ -93,7 +88,7 @@ static_lr: 0.0003       # ResNet + 回归器学习率
 # AMP AND MIXED PRECISION
 # ============================================================================
 use_amp: true         # 使用自动混合精度
-clip_grad_norm: 1.0   # 梯度裁剪
+clip_grad_norm: 100.0   # 梯度裁剪
 
 # ============================================================================
 # EARLY STOPPING
@@ -116,12 +111,8 @@ log_freq: 10          # 每 N 步记录一次 Tensor
 gpus: 0               # GPU ID（逗号分隔）
 seed: 42              # 随机种子
 
-
-
 #expected_clips: 71    # 🌟 告诉全连接层：请给我建一个容量为 72 个 Clip 的打分器！
 max_clips: 45         # 🌟 告诉底层 I3D/ResNet：切到 72 个就立刻停手，别再往下切了，省点显存！
-
-
 
 # ============================================================================
 # TRANSFORMER SETTINGS (NEW)
@@ -135,22 +126,22 @@ use_bottleneck: true      # true: 开启降维瓶颈层；false: 保持 1152 维
 bottleneck_dim: 256       # 如果开启瓶颈层，目标压缩维度是多少
 
 
-use_warmup: false
+use_warmup: true
 warmup_epochs: 5
-accumulation_steps: 1
+accumulation_steps: 3
 
 # ==========================================
 # 损失函数与多目标权重分配控制
 # ==========================================
-loss_type: 'score_plus_rank'      # 第一级：'score_only' (只用MSE/MAE) 或 'score_plus_rank' (混合模式)
-score_loss_type: 'mae'            # 基础分数Loss：'mse' 或 'mae'
+loss_type: 'score_plus_rank'      
+score_loss_type: 'mae'            
 
-# (以下参数仅在 loss_type 为 'score_plus_rank' 时生效)
-use_mean_penalty: true            # 第二级：是否开启分布锚点 (对齐均值)
+use_mean_penalty: false           # （建议暂且关闭，防止捷径作弊）
+use_tie_loss: true                # 🌟 新增：是否开启“同分聚合损失” (Tie Attraction)
 
-use_dynamic_weights: true         # 第三级：是否让网络自己学习权重！
-                                  # (设为 true 时，下面的 lambda_rank 和 lambda_mean 会被自动无视)
-                                  # (设为 false 时，采用下面你手动设定的固定权重)
-lambda_rank: 2.0                  # 手动设定的排序 Loss 权重
-lambda_mean: 1.0                  # 手动设定的分布锚点 Loss 权重
-rank_margin: 0.05                 # 排序损失的安全边距
+use_dynamic_weights: false        # 🌟 (建议小样本时关闭，手动控制权重更稳)
+
+lambda_rank: 1                  # 排序(排斥力) Loss 权重
+lambda_mean: 0.0                  # 均值锚点 Loss 权重
+lambda_tie: 0.5                   # 🌟 新增：同分聚合(吸引力) Loss 权重 (手动时生效)
+rank_margin: 0.1

@@ -338,7 +338,7 @@ def train_epoch(model, dataloader, optimizer, device, epoch, config, scaler=None
             loss = loss / accumulation_steps
             loss.backward()
             if ((batch_idx + 1) % accumulation_steps == 0) or ((batch_idx + 1) == len(dataloader)):
-                clip_norm = config.get('clip_grad_norm', 1.0)
+                clip_norm = config.get('clip_grad_norm', 0.0)
                 if clip_norm > 0:
                     # 🌟 同理，全精度模式下也记录
                     total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), clip_norm)
@@ -373,6 +373,14 @@ def train_epoch(model, dataloader, optimizer, device, epoch, config, scaler=None
     #metrics = compute_metrics(pred_scores, gt_scores)
     metrics = compute_metrics(pred_scores_real, gt_scores_real)
     metrics['grad_norm'] = grad_norm_meter.avg  # 🌟 将梯度长度打包
+    # ====== 🌟 新增：提取最后一个 Batch 的动态权重传给外部 ======
+    if config.get('use_dynamic_weights', False):
+        # 此时的 loss_dict 是本 epoch 最后一个 batch 的输出，足够代表当前 epoch 的状态
+        metrics['weight_score'] = loss_dict.get('weight_score', 0.0)
+        metrics['weight_rank']  = loss_dict.get('weight_rank', 0.0)
+        metrics['weight_mean']  = loss_dict.get('weight_mean', 0.0)
+        metrics['weight_tie']   = loss_dict.get('weight_tie', 0.0)
+    # ============================================================
     return loss_meter.avg, metrics
 
 
@@ -589,9 +597,23 @@ def main():
     device = setup_device(args.gpu)
 
     os.makedirs(args.output_dir, exist_ok=True)
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    log_dir = os.path.join(args.output_dir, f'run_{timestamp}')
-    os.makedirs(log_dir, exist_ok=True)
+    # ================== 🌟 智能目录继承逻辑 (终极版) ==================
+    if args.resume is not None:
+        # 情况 1：有 .pth 断点文件 (例如跑了一半断掉)
+        log_dir = os.path.dirname(args.resume)
+        print(f"\n📂 检测到断点续训！日志和权重将继续保存在原目录: {log_dir}")
+        
+    elif 'run_' in args.config:
+        # 🌟 情况 2：没有断点文件，但传入了旧文件夹里的 config.yaml (例如新的一折刚开始)
+        log_dir = os.path.dirname(args.config)
+        print(f"\n📂 检测到继承训练！日志和权重将存入历史目录: {log_dir}")
+        
+    else:
+        # 情况 3：完全从头开始的新训练 (传入的是 configs/bounded.yaml)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        log_dir = os.path.join(args.output_dir, f'run_{timestamp}')
+        os.makedirs(log_dir, exist_ok=True)
+    # ==========================================================
 
     config_path = os.path.join(log_dir, 'config.yaml')
     with open(config_path, 'w') as f:
@@ -746,13 +768,23 @@ def main():
             val_loss, val_metrics = validate(model, val_loader, device, config)
 
             # 将当前折的日志写入 tensorboard
-            fold_writer.add_scalar('train/loss', train_loss, epoch)
-            fold_writer.add_scalar('train/spearman', train_metrics['spearman'], epoch)
-            fold_writer.add_scalar('train/grad_norm', train_metrics['grad_norm'], epoch) # 🌟 画出真实的梯度长度！
+            fold_writer.add_scalar('train/1_loss', train_loss, epoch)
+            fold_writer.add_scalar('train/2_spearman', train_metrics['spearman'], epoch)
+            fold_writer.add_scalar('train/3_grad_norm', train_metrics['grad_norm'], epoch) # 🌟 画出真实的梯度长度！
+            # ====== 🌟 新增：将动态权重画到 TensorBoard ======
+            # 为了在 Tensorboard 里排版好看，我给它们加了数字前缀 1_ 2_ 3_ 4_
+            if config.get('use_dynamic_weights', False):
+                fold_writer.add_scalar('weights/4_score_weight', train_metrics.get('weight_score', 0.0), epoch)
+                fold_writer.add_scalar('weights/5_rank_weight', train_metrics.get('weight_rank', 0.0), epoch)
+                if config.get('use_mean_penalty', False):
+                    fold_writer.add_scalar('weights/6_mean_weight', train_metrics.get('weight_mean', 0.0), epoch)
+                if config.get('use_tie_loss', False):
+                    fold_writer.add_scalar('weights/7_tie_weight', train_metrics.get('weight_tie', 0.0), epoch)
+            # ==================================================
             # 可选的美化修改（在 main 函数的循环里）
             prefix = 'test' if skip_val else 'val'
-            fold_writer.add_scalar(f'{prefix}/loss', val_loss, epoch)
-            fold_writer.add_scalar(f'{prefix}/spearman', val_metrics['spearman'], epoch)
+            fold_writer.add_scalar(f'{prefix}/1_loss', val_loss, epoch)
+            fold_writer.add_scalar(f'{prefix}/2_spearman', val_metrics['spearman'], epoch)
             #fold_writer.add_scalar('val/loss', val_loss, epoch)
             #fold_writer.add_scalar('val/spearman', val_metrics['spearman'], epoch)
             # ==========================================================
