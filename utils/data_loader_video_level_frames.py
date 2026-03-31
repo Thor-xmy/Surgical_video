@@ -88,6 +88,7 @@ class VideoLevelDatasetFrames(Dataset):
                  current_fold=0,
                  sub_score_min=1.0, 
                  sub_score_max=5.0,
+                 normalize_scores=True,  # 🌟 新增参数
                  is_train=True):
         """
         Args:
@@ -135,6 +136,7 @@ class VideoLevelDatasetFrames(Dataset):
         # Score normalization parameters
         self.score_min = score_min
         self.score_max = score_max
+        self.normalize_scores = normalize_scores # 🌟 保存归一化开关
         self.target_min = target_min
         self.target_max = target_max
         self.sub_score_min = sub_score_min  # 🌟 保存子项最小边界
@@ -475,7 +477,9 @@ class VideoLevelDatasetFrames(Dataset):
                 #normalized_score = self._normalize_score(original_score)
                 anno = self.annotations[video_id_normalized]
                 original_score = anno.get('score', 0)
-                normalized_score = self._normalize_score(original_score)
+                # 🌟 动态决定是否归一化总分
+                normalized_score = self._normalize_score(original_score) if self.normalize_scores else float(original_score)
+                #normalized_score = self._normalize_score(original_score)
                 # 🌟 新增：读取子项分数
                 individual_scores = anno.get('individual_scores', [])
             else:
@@ -522,11 +526,13 @@ class VideoLevelDatasetFrames(Dataset):
 
             # 🌟 新增：如果 JSON 中有小分，将其独立归一化并存入 sample
             if len(individual_scores) > 0:
-                sub_range = self.sub_score_max - self.sub_score_min
-                sub_range = sub_range if sub_range > 0 else 1.0
-                norm_subs = [(s - self.sub_score_min) / sub_range for s in individual_scores]
-                sample['sub_scores'] = torch.tensor(norm_subs, dtype=torch.float32)
-            
+                if self.normalize_scores:
+                    sub_range = self.sub_score_max - self.sub_score_min
+                    sub_range = sub_range if sub_range > 0 else 1.0
+                    norm_subs = [(s - self.sub_score_min) / sub_range for s in individual_scores]
+                    sample['sub_scores'] = torch.tensor(norm_subs, dtype=torch.float32)
+                else:
+                    sample['sub_scores'] = torch.tensor([float(s) for s in individual_scores], dtype=torch.float32)
             # 如果 mask_tensor 存在，才往字典里加 'masks' 键
             if mask_tensor is not None:
                 sample['masks'] = mask_tensor
@@ -562,6 +568,7 @@ def create_dataloader_with_split(data_root,
                               skip_val=False,
                               sub_score_min=1.0,  # 🌟 接收外部传参
                               sub_score_max=5.0,  # 🌟 接收外部传参
+                              normalize_scores=True,
                               **kwargs):
     """
     Factory function to create dataloader with proper data splitting.
@@ -600,6 +607,7 @@ def create_dataloader_with_split(data_root,
         skip_val=skip_val,            # 🌟 传给 Dataset
         sub_score_min=sub_score_min,  # 🌟 传给 Dataset
         sub_score_max=sub_score_max,  # 🌟 传给 Dataset
+        normalize_scores=normalize_scores, # 🌟 传给 Dataset
         spatial_size=spatial_size,
         is_train=is_train,
         **kwargs

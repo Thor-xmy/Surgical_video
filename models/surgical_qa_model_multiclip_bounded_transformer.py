@@ -232,13 +232,15 @@ class SurgicalQAModelMultiClipBounded(nn.Module):
         # ====== 🌟 新增：提取输出维度配置 ======
         self.use_sub_scores = self.config.get('use_sub_scores', False)
         self.num_sub_scores = self.config.get('num_sub_scores', 5)
+        self.normalize_scores = self.config.get('normalize_scores', True) # 🌟 读取归一化开关
         out_dim = self.num_sub_scores if self.use_sub_scores else 1
 
         self.fusion_regressor = BoundedFusionRegressorMultiClip(
             input_dim=transformer_input_dim, # 👈 回归头的输入也动态变化
             hidden_dims=self.config.get('regressor_hidden_dims', default_hidden_dims),
             dropout_rate=self.config.get('regressor_dropout', 0.5),
-            out_dim=out_dim  # 🌟 将动态分支数传递给底层回归器
+            out_dim=out_dim,  # 🌟 将动态分支数传递给底层回归器
+            use_sigmoid=self.normalize_scores # 🌟 透传给底层：归一化就用Sigmoid，不归一化就不用！
         )
         
         

@@ -7,7 +7,7 @@
 # ============================================================================
 # DATA SETTINGS
 # ============================================================================
-data_root: /root/autodl-tmp/SV_test/data/Knot_tying  # JIGSAWS 数据集根目录
+data_root: /root/autodl-tmp/SV_test/data/heichole_calot  # JIGSAWS 数据集根目录
 batch_size: 3
 val_batch_size: 3         # 验证集的 Batch Size（不计算梯度，可以设大点）
 test_batch_size: 9        # 测试集的 Batch Size
@@ -22,10 +22,12 @@ split_seed: 42
 # ============================================================================
 # JIGSAWS GRS 分数范围：6-30
 # 归一化到 0-1 范围用于训练
-score_min: 6.0           # 原始 GRS 分数最小值
-score_max: 30.0          # 原始 GRS 分数最大值
+score_min: 5.0           # 原始 GRS 分数最小值
+score_max: 25.0          # 原始 GRS 分数最大值
 target_min: 0.0         # 归一化目标最小值（用于训练）
 target_max: 1.0         # 归一化目标最大值（用于训练）
+# 新增：控制是否将分数归一化到 [0, 1] 以及是否使用 Sigmoid
+normalize_scores: false  # 设为 false 则直接使用 5-25 或 1-5 的真实分数训练
 
 # 归一化公式：
 #   normalized = (score - score_min) / (score_max - score_min) * (target_max - target_min) + target_min
@@ -81,14 +83,14 @@ lr_gamma: 0.1
 
 # 差分学习率（论文要求）
 backbone_lr: 0.00001     # I3D 主干网络学习率
-static_lr: 0.0003       # ResNet + 回归器学习率
+static_lr: 0.0001       # ResNet + 回归器学习率
 
 
 # ============================================================================
 # AMP AND MIXED PRECISION
 # ============================================================================
 use_amp: true         # 使用自动混合精度
-clip_grad_norm: 100.0   # 梯度裁剪
+clip_grad_norm: 1000.0   # 梯度裁剪
 
 # ============================================================================
 # EARLY STOPPING
@@ -149,7 +151,7 @@ rank_margin: 0.1              ##所有视频对margin相同
 # ==========================================
 # 多任务细粒度预测控制 (Sub-score Regression)
 # ==========================================
-use_sub_scores: true              # 🌟 是否开启多分支子项预测
+use_sub_scores: false              # 🌟 是否开启多分支子项预测
 num_sub_scores: 6                 # 子项的数量 (Hei-Chole 是 5)
 sub_score_min: 1.0                # 每个子项的最低分
 sub_score_max: 5.0                # 每个子项的最高分

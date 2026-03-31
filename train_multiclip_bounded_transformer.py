@@ -378,9 +378,19 @@ def train_epoch(model, dataloader, optimizer, device, epoch, config, scaler=None
     score_range = score_max - score_min
     
     # 2. 将 [0, 1] 范围的分数反归一化回真实分数范围 (例如 5~25)
-    pred_scores_real = pred_scores * score_range + score_min
-    gt_scores_real = gt_scores * score_range + score_min
-    
+    #pred_scores_real = pred_scores * score_range + score_min
+    #gt_scores_real = gt_scores * score_range + score_min
+    # 2. 动态判断是否需要反归一化
+    if config.get('normalize_scores', True):
+        # 原有的反归一化逻辑
+        pred_scores_real = pred_scores * score_range + score_min
+        gt_scores_real = gt_scores * score_range + score_min
+    else:
+        # 🌟 不归一化时，网络输出就是真实分数，直接用！
+        pred_scores_real = pred_scores
+        gt_scores_real = gt_scores
+
+
     # 3. 计算具有真实对比意义的 Metrics
     #metrics = compute_metrics(pred_scores, gt_scores)
     metrics = compute_metrics(pred_scores_real, gt_scores_real)
@@ -713,6 +723,7 @@ def main():
             score_max=config['score_max'],
             sub_score_min=config.get('sub_score_min', 1.0), # 🌟 新增参数透传
             sub_score_max=config.get('sub_score_max', 5.0), # 🌟 新增参数透传
+            normalize_scores=config.get('normalize_scores', True), # 🌟 新增参数透传
             subset='train',
             num_folds=num_folds,          # 👈 传入折数
             current_fold=current_fold,    # 👈 传入当前折的索引
@@ -752,6 +763,7 @@ def main():
             score_max=config['score_max'],
             sub_score_min=config.get('sub_score_min', 1.0), # 🌟 新增参数透传
             sub_score_max=config.get('sub_score_max', 5.0), # 🌟 新增参数透传
+            normalize_scores=config.get('normalize_scores', True), # 🌟 新增参数透传
             subset='test',                # 👈 这一折的测试集
             num_folds=num_folds,
             current_fold=current_fold,
@@ -778,6 +790,7 @@ def main():
                 score_max=config['score_max'],# ... (保持你原本传的参数不变)
                 sub_score_min=config.get('sub_score_min', 1.0), # 🌟 新增参数透传
                 sub_score_max=config.get('sub_score_max', 5.0), # 🌟 新增参数透传
+                normalize_scores=config.get('normalize_scores', True), # 🌟 新增参数透传
                 subset='val',
                 num_folds=num_folds,
                 current_fold=current_fold,

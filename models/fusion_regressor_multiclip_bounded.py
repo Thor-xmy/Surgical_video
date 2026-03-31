@@ -23,7 +23,7 @@ class BoundedFusionRegressorMultiClip(nn.Module):
     - 训练损失：MSE
     - 推理：反归一化到 [1, 10] 或 [6, 30]
     """
-    def __init__(self, input_dim, hidden_dims=[1024, 512, 256, 128],dropout_rate=0.5,out_dim=1):
+    def __init__(self, input_dim, hidden_dims=[1024, 512, 256, 128],dropout_rate=0.5,out_dim=1,use_sigmoid=True):
         """
         Args:
             input_dim: Total input dimension (already fused features)
@@ -45,16 +45,19 @@ class BoundedFusionRegressorMultiClip(nn.Module):
             prev_dim = hidden_dim
 
         # Final output layer：Linear → Sigmoid
+        layers.append(nn.Linear(prev_dim, out_dim))
+        if use_sigmoid:
+            layers.append(nn.Sigmoid())  # ← 关键：根据开关决定是否锁死 (0, 1)
         # Sigmoid 确保输出严格在 (0, 1) 之间
-        layers.extend([
-            nn.Linear(prev_dim, out_dim),
+        #layers.extend([
+            #nn.Linear(prev_dim, out_dim),
             #nn.LayerNorm(64),
             #nn.ReLU(inplace=True),
             #nn.Dropout(dropout_rate / 2.0),
             #nn.Linear(64, 1),
             #nn.LayerNorm(1), ###############################################
-            nn.Sigmoid()  # ← 关键：添加 Sigmoid 激活函数
-        ])
+            #nn.Sigmoid()  # ← 关键：添加 Sigmoid 激活函数
+        #])
 
         self.regressor = nn.Sequential(*layers)
 
