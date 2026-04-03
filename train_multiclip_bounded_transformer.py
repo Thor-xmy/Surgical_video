@@ -657,7 +657,7 @@ def main():
 
     use_mask = config.get('use_mask', True)
     use_amp = config.get('use_amp', False)
-    scaler = GradScaler() if use_amp else None
+    
     
     # 🌟 设定 K折数量（建议写在 config 里，默认用 4 折）
     num_folds = config.get('num_folds', 4)
@@ -677,7 +677,8 @@ def main():
         print("\n" + "★"*70)
         print(f"★ 开始训练 FOLD {current_fold + 1} / {num_folds}")
         print("★"*70)
-
+        scaler = GradScaler() if use_amp else None
+        setup_seed(args.seed)
         # 1. 每一折必须重新初始化一个全新的模型！绝对不能让模型携带上一折的记忆！
         model = SurgicalQAModelMultiClipBounded(config).to(device)
         # 🌟 新增：只在第一折（或只跑单折）时打印一次参数报告，防止控制台刷屏

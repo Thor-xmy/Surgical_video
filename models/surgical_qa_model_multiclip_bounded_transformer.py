@@ -496,6 +496,9 @@ class SurgicalQAModelMultiClipBounded(nn.Module):
                 score_loss = F.mse_loss(score_pred, sub_score_gt)
             elif score_loss_type == 'mae':
                 score_loss = F.l1_loss(score_pred, sub_score_gt)
+            elif score_loss_type == 'smooth_l1':  # 🌟 新增：Smooth L1 选项
+                beta = self.config.get('smooth_l1_beta', 1.0)
+                score_loss = F.smooth_l1_loss(score_pred, sub_score_gt, beta=beta)
             else:
                 raise ValueError(f"未知的 score_loss_type: {score_loss_type}")
                 
@@ -509,6 +512,9 @@ class SurgicalQAModelMultiClipBounded(nn.Module):
                 score_loss = F.mse_loss(score_pred_flat, score_gt_flat)
             elif score_loss_type == 'mae':
                 score_loss = F.l1_loss(score_pred_flat, score_gt_flat)
+            elif score_loss_type == 'smooth_l1':  # 🌟 新增：Smooth L1 选项
+                beta = self.config.get('smooth_l1_beta', 1.0)
+                score_loss = F.smooth_l1_loss(score_pred_flat, score_gt_flat, beta=beta)
             else:
                 raise ValueError(f"未知的 score_loss_type: {score_loss_type}")
                 
@@ -547,9 +553,17 @@ class SurgicalQAModelMultiClipBounded(nn.Module):
                     use_dynamic_margin = self.config.get('use_dynamic_margin', True)
                     
                     if use_dynamic_margin:
+                        # 🌟 优化：提取真实分差，应用 margin_scale 打折，并加上 max_margin 截断保护
+                        raw_margin = gt_i[mask_diff] - gt_j[mask_diff]
                         margin_scale = self.config.get('margin_scale', 1.0)
-                        dynamic_margin = (gt_i[mask_diff] - gt_j[mask_diff]) * margin_scale
+                        max_margin = self.config.get('max_margin', 2.0)  # 防止分差过大导致特征被撕裂
+                        
+                        dynamic_margin = torch.clamp(raw_margin * margin_scale, max=max_margin)
+                        
                         rank_loss = F.relu(-(pred_i[mask_diff] - pred_j[mask_diff]) + dynamic_margin).mean()
+                        #margin_scale = self.config.get('margin_scale', 1.0)
+                        #dynamic_margin = (gt_i[mask_diff] - gt_j[mask_diff]) * margin_scale
+                        #rank_loss = F.relu(-(pred_i[mask_diff] - pred_j[mask_diff]) + dynamic_margin).mean()
                     else:
                         target = torch.ones_like(pred_i[mask_diff])
                         margin = self.config.get('rank_margin', 0.05)

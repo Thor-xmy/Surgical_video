@@ -629,6 +629,14 @@ def create_dataloader_with_split(data_root,
         is_train=is_train,
         **kwargs
     )
+    # 🌟🌟🌟 新增：强制重置每个子进程的随机数种子，打破随机性克隆！
+    def worker_init_fn(worker_id):
+        # PyTorch 会为每个 worker 生成一个不同的基础种子
+        worker_seed = torch.initial_seed() % 2**32
+        # 必须手动将这个种子同步给 Numpy 和 Python 原生的 random 模块
+        np.random.seed(worker_seed)
+        random.seed(worker_seed)
+    # 🌟🌟🌟 新增结束
 
     dataloader = DataLoader(
         dataset,
@@ -637,6 +645,7 @@ def create_dataloader_with_split(data_root,
         num_workers=num_workers,
         pin_memory=True,
         drop_last=is_train
+        worker_init_fn=worker_init_fn  # 🌟 核心修改：挂载 worker 初始化函数
     )
 
     print(f"Created {subset} dataloader:")
