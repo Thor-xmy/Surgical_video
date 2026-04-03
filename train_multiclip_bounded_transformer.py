@@ -1,15 +1,3 @@
-"""
-Training Script for Multi-Clip Bounded Surgical QA Model
-
-完整支持：
-1. Video-level DataLoader（返回整个视频）
-2. Multi-clip特征提取（静态+动态）
-3. Per-clip特征融合
-4. 有界回归（Sigmoid，输出[0, 1））
-
-Usage:
-    python train_multiclip_bounded.py --data_root /path/to/data
-"""
 
 import argparse
 import os
@@ -167,31 +155,7 @@ def print_trainable_parameters(model):
 
 
 # 这里的双学习率代码你已经加得很完美了，完全保留
-'''
-def build_optimizer(model, config):
-    base_lr = config.get('learning_rate', 1e-4)
-    weight_decay = config.get('weight_decay', 1e-5)
 
-    backbone_params = []
-    other_params = []
-
-    for name, param in model.named_parameters():
-        if not param.requires_grad:
-            continue
-        # 假设动态特征提取器（I3D）的名字包含 'dynamic_extractor'
-        if 'dynamic_extractor' in name:
-            backbone_params.append(param)
-        else:
-            other_params.append(param)
-
-    # I3D 使用 base_lr (1e-4)，其他层（静态+回归头）使用 base_lr * 10 (1e-3)
-    optimizer = optim.Adam([
-        {'params': backbone_params, 'lr': base_lr},
-        {'params': other_params, 'lr': base_lr * 10.0}
-    ], weight_decay=weight_decay)
-
-    return optimizer
-'''
 def build_optimizer(model, config):
     # 成功从 yaml 读取配置
     backbone_lr = config.get('backbone_lr', 3e-4)
@@ -477,149 +441,6 @@ def save_checkpoint(model, optimizer, epoch, loss, metrics, output_dir, filename
     torch.save(checkpoint, checkpoint_path)
     print(f"Saved checkpoint to {checkpoint_path}")
 
-'''
-def main():
-    args = parse_args()
-    config = load_config(args.config, args)
-
-    setup_seed(args.seed)
-    device = setup_device(args.gpu)
-
-    os.makedirs(args.output_dir, exist_ok=True)
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    log_dir = os.path.join(args.output_dir, f'run_{timestamp}')
-    os.makedirs(log_dir, exist_ok=True)
-
-    writer = SummaryWriter(log_dir)
-
-    config_path = os.path.join(log_dir, 'config.yaml')
-    with open(config_path, 'w') as f:
-        yaml.dump(config, f)
-
-    print("\n" + "="*70)
-    print("Multi-Clip Bounded Surgical QA Model Training")
-    print("="*70)
-    print(f"Data root: {config['data_root']}")
-    print(f"Output dir: {log_dir}")
-    print("="*70 + "\n")
-
-    model = SurgicalQAModelMultiClipBounded(config)
-    model = model.to(device)
-    model.count_parameters()
-
-    optimizer = build_optimizer(model, config)
-    scheduler = build_scheduler(optimizer, config)  ############################################################
-    start_epoch = 0
-    best_metric = -float('inf')
-
-    if args.resume is not None:
-        print(f"Loading checkpoint from {args.resume}")
-        checkpoint = torch.load(args.resume, map_location=device, weights_only=False)  ################################################################
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        start_epoch = checkpoint['epoch'] + 1
-        print(f"Resuming from epoch {start_epoch}")
-
-    # 🌟 修改点 2：将 YAML 里的 use_mask 开关透传给 DataLoader
-    # 默认 True 表示如果你没在 YAML 里写这个参数，它就会像以前一样加载 Mask
-    use_mask = config.get('use_mask', True)
-    # 解析 YAML 中的 split_ratio 数组
-    split_ratio_config = config.get('split_ratio', [0.7, 0.15, 0.15])
-    parsed_train_ratio = split_ratio_config[0]
-    parsed_val_ratio = split_ratio_config[1]
-    parsed_test_ratio = split_ratio_config[2]
-    # Create dataloaders with proper data splitting (70/15/15 train/val/test)
-    train_loader = create_dataloader_with_split(
-        data_root=config['data_root'],
-        batch_size=config['batch_size'],
-        num_workers=config['num_workers'],
-        spatial_size=config.get('spatial_size', 112),
-        clip_length=config['clip_length'],
-        clip_stride=config['clip_stride'],
-        score_min=config['score_min'],
-        score_max=config['score_max'],
-        # Data splitting parameters
-        subset='train',
-        train_ratio=parsed_train_ratio,
-        val_ratio=parsed_val_ratio,
-        test_ratio=parsed_test_ratio,
-        split_seed=config.get('split_seed', 42),
-        is_train=True,
-        use_mask=use_mask  # 🌟 传入开关
-    )
-
-    val_loader = create_dataloader_with_split(
-        data_root=config['data_root'],
-        batch_size=config['batch_size'],
-        num_workers=config['num_workers'],
-        spatial_size=config.get('spatial_size', 112),
-        clip_length=config['clip_length'],
-        clip_stride=config['clip_stride'],
-        score_min=config['score_min'],
-        score_max=config['score_max'],
-        # Data splitting parameters
-        subset='val',
-        train_ratio=parsed_train_ratio,
-        val_ratio=parsed_val_ratio,
-        test_ratio=parsed_test_ratio,
-        split_seed=config.get('split_seed', 42),
-        is_train=False,
-        use_mask=use_mask  # 🌟 传入开关
-    )
-    use_amp = config.get('use_amp', False)
-    scaler = GradScaler() if use_amp else None
-    print(f"AMP (Mixed Precision) enabled: {use_amp}")
-    for epoch in range(start_epoch, config['epochs']):
-        print(f"\nEpoch {epoch + 1}/{config['epochs']}")
-        print("-" * 70)
-
-        train_loss, train_metrics = train_epoch(
-            model, train_loader, optimizer, device, epoch, config, scaler
-        )
-
-        val_loss, val_metrics = validate(
-            model, val_loader, device, config
-        )
-
-        print(f"\nEpoch {epoch + 1} Summary:")
-        print(f"  Train Loss: {train_loss:.4f}")
-        print(f"  Val Loss: {val_loss:.4f}")
-        print(f"  Train Spearman: {train_metrics['spearman']:.4f}")
-        print(f"  Val Spearman: {val_metrics['spearman']:.4f}")
-        print(f"  Train L2: {train_metrics['l2']:.4f}")
-        print(f"  Val L2: {val_metrics['l2']:.4f}")
-        print(f"  Train RL2: {train_metrics['rl2']:.4f}")
-        print(f"  Val RL2: {val_metrics['rl2']:.4f}")
-
-        writer.add_scalar('train/loss', train_loss, epoch)
-        writer.add_scalar('train/spearman', train_metrics['spearman'], epoch)
-        writer.add_scalar('train/l2', train_metrics['l2'], epoch)
-        writer.add_scalar('train/rl2', train_metrics['rl2'], epoch)
-
-        writer.add_scalar('val/loss', val_loss, epoch)
-        writer.add_scalar('val/spearman', val_metrics['spearman'], epoch)
-        writer.add_scalar('val/l2', val_metrics['l2'], epoch)
-        writer.add_scalar('val/rl2', val_metrics['rl2'], epoch)
-
-        if (epoch + 1) % config['save_freq'] == 0:
-            save_checkpoint(
-                model, optimizer, epoch + 1, val_loss, val_metrics,
-                log_dir, f'checkpoint_epoch_{epoch + 1}.pth'
-            )
-
-        if val_metrics['spearman'] > best_metric:
-            best_metric = val_metrics['spearman']
-            save_checkpoint(
-                model, optimizer, epoch + 1, val_loss, val_metrics,
-                log_dir, 'best_model.pth'
-            )
-        if scheduler is not None:  ####################################################################
-            scheduler.step()
-
-    print("\nTraining completed!")
-    print(f"Best Spearman: {best_metric:.4f}")
-    writer.close()
-'''
 
 def main():
     args = parse_args()
@@ -734,25 +555,7 @@ def main():
             use_mask=use_mask,
             skip_val=skip_val  # 🌟 传给 DataLoader，让训练集吃掉验证集
         )
-        '''
-        val_loader = create_dataloader_with_split(
-            data_root=config['data_root'],
-            #batch_size=config['batch_size'],
-            batch_size=config.get('val_batch_size', config['batch_size']),
-            num_workers=config['num_workers'],
-            spatial_size=config.get('spatial_size', 112),
-            clip_length=config['clip_length'],
-            clip_stride=config['clip_stride'],
-            score_min=config['score_min'],
-            score_max=config['score_max'],
-            subset='val',                 # 👈 这一折的验证集
-            num_folds=num_folds,
-            current_fold=current_fold,
-            split_seed=config.get('split_seed', 42),
-            is_train=False,
-            use_mask=use_mask
-        )
-        '''
+  
         test_loader = create_dataloader_with_split(
             data_root=config['data_root'],
             #batch_size=config['batch_size'],

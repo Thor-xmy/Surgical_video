@@ -197,41 +197,7 @@ class VideoLevelDatasetFrames(Dataset):
         print(f"Applied normalization (lowercase, _->-): Hei-Chole10_Calot -> hei-chole10-calot")
 
         return annotations_normalized
-    '''
-    def _split_data(self):
-        """Split data into train/val/test subsets."""
-        random.seed(self.split_seed)
-
-        # Shuffle for split
-        shuffled_ids = self.all_video_ids.copy()
-        random.shuffle(shuffled_ids)
-
-        n_total = len(shuffled_ids)
-        n_train = int(n_total * self.train_ratio)
-        n_val = int(n_total * self.val_ratio)
-
-        train_ids = shuffled_ids[:n_train]
-        val_ids = shuffled_ids[n_train:n_train+n_val]
-        test_ids = shuffled_ids[n_train+n_val:]
-
-        print(f"Data split with seed={self.split_seed}:")
-        print(f"  Train: {len(train_ids)} ({len(train_ids)/n_total*100:.1f}%)")
-        print(f"  Val:   {len(val_ids)} ({len(val_ids)/n_total*100:.1f}%)")
-        print(f"  Test:  {len(test_ids)} ({len(test_ids)/n_total*100:.1f}%)")
-
-        if self.subset == 'train':
-            print(f"Selected subset: train ({len(train_ids)} videos)")
-            return train_ids
-        elif self.subset == 'val':
-            print(f"Selected subset: val ({len(val_ids)} videos)")
-            return val_ids
-        elif self.subset == 'test':
-            print(f"Selected subset: test ({len(test_ids)} videos)")
-            return test_ids
-        else:
-            print(f"Warning: Unknown subset '{self.subset}', using all videos")
-            return shuffled_ids
-    '''
+    
     def _split_data(self):
         """Split data into train/val/test subsets or K-Folds."""
         random.seed(self.split_seed)
